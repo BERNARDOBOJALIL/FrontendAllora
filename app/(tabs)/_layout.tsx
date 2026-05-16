@@ -82,12 +82,6 @@ function CustomTabBar({
       label: "Home",
     },
     {
-      name: "compass",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Explore",
-    },
-    {
       name: "radar",
       activeColor: "#ff2d78",
       inactiveColor: "#999999",
@@ -171,12 +165,6 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: "Explore",
         }}
       />
       <Tabs.Screen
