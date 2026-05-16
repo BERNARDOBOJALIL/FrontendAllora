@@ -26,6 +26,10 @@ export default function HomeScreen() {
         Ir a Radar de ubicacion
       </Link>
 
+      <Link href='/(tabs)/my-profile' style={styles.link}>
+        Ir a Mi perfil
+      </Link>
+
       <Link href='/profile-builder' style={styles.link}>
         Construir perfil con el agente
       </Link>
