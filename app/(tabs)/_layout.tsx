@@ -93,6 +93,12 @@ function CustomTabBar({
       inactiveColor: "#999999",
       label: "Radar",
     },
+    {
+      name: "chat",
+      activeColor: "#ff2d78",
+      inactiveColor: "#999999",
+      label: "Chat",
+    },
   ];
 
   return (
@@ -177,6 +183,12 @@ export default function TabLayout() {
         name="location"
         options={{
           title: "Location",
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
         }}
       />
     </Tabs>

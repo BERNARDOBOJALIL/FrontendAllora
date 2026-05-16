@@ -1,7 +1,21 @@
 const DEFAULT_API_BASE_URL = 'http://localhost:8000';
 
+export class ApiError extends Error {
+  status: number;
+  details?: unknown;
+
+  constructor(status: number, message: string, details?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.details = details;
+  }
+}
+
 export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL;
+  process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
+  process.env.VITE_API_BASE_URL?.trim() ||
+  DEFAULT_API_BASE_URL;
 
 export function buildApiUrl(path: string): string {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
@@ -45,6 +59,7 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    const details = payload;
 
     if (payload && typeof payload === 'object' && 'detail' in payload) {
       const detail = (payload as Record<string, unknown>).detail;
@@ -57,7 +72,7 @@ export async function apiRequest<T>(
       message = payload;
     }
 
-    throw new Error(message);
+    throw new ApiError(response.status, message, details);
   }
 
   return payload as T;
