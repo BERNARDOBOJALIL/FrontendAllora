@@ -1,3 +1,4 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import { Link } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -26,9 +27,16 @@ export default function HomeScreen() {
         Ir a Radar de ubicacion
       </Link>
 
-      <Pressable style={styles.logoutButton} onPress={logout}>
-        <Text style={styles.logoutText}>Cerrar sesion</Text>
-      </Pressable>
+      <LinearGradient
+        colors={['#ff6b9d', '#ff9a76']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.logoutGradient}
+      >
+        <Pressable onPress={logout} style={styles.logoutButton}>
+          <Text style={styles.logoutText}>Cerrar sesión</Text>
+        </Pressable>
+      </LinearGradient>
     </View>
   );
 }
@@ -67,20 +75,27 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   link: {
-    color: '#2563eb',
+    color: '#ff6b9d',
     fontSize: 14,
   },
+  logoutGradient: {
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#ff6b9d',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 5,
+  },
   logoutButton: {
-    marginTop: 8,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: '#111111',
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoutText: {
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

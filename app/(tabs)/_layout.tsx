@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Tabs } from "expo-router";
 import React from "react";
 import { Animated, StyleSheet, Text, View } from "react-native";
@@ -125,20 +126,33 @@ function CustomTabBar({
               key={route.key}
               onPress={onPress}
               onLongPress={onLongPress}
-              style={[styles.tabItem, isFocused && styles.tabItemActive]}
+              style={styles.tabItem}
             >
-              <TabBarIcon icon={tabIcons[index]} focused={isFocused} />
-              <Text
-                style={[
-                  styles.tabLabel,
-                  {
-                    color: isFocused ? "#ff2d78" : "#999999",
-                    opacity: isFocused ? 1 : 0.6,
-                  },
-                ]}
-              >
-                {tabIcons[index].label}
-              </Text>
+              {isFocused ? (
+                <LinearGradient
+                  colors={["#ff6b9d", "#ff9a76"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.tabItemActiveGradient}
+                >
+                  <TabBarIcon icon={tabIcons[index]} focused={isFocused} />
+                  <Text style={[styles.tabLabel, { color: '#ffffff' }]}>
+                    {tabIcons[index].label}
+                  </Text>
+                </LinearGradient>
+              ) : (
+                <>
+                  <TabBarIcon icon={tabIcons[index]} focused={isFocused} />
+                  <Text
+                    style={[
+                      styles.tabLabel,
+                      { color: '#999999', opacity: 0.6 },
+                    ]}
+                  >
+                    {tabIcons[index].label}
+                  </Text>
+                </>
+              )}
             </HapticTab>
           );
         })}
@@ -219,6 +233,14 @@ const styles = StyleSheet.create({
   },
   tabItemActive: {
     backgroundColor: "rgba(255, 45, 120, 0.08)",
+  },
+  tabItemActiveGradient: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    width: '100%',
   },
   tabIconContainer: {
     alignItems: "center",
