@@ -1,4 +1,4 @@
-import { Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,6 +16,7 @@ type Mode = 'login' | 'register';
 
 export default function AuthScreen() {
   const { isAuthenticated, login, register } = useAuth();
+  const router = useRouter();
 
   const [mode, setMode] = useState<Mode>('login');
   const [nombre, setNombre] = useState('');
@@ -27,7 +28,7 @@ export default function AuthScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (isAuthenticated) {
-    return <Redirect href='/(tabs)' />;
+    return <Redirect href='/profile-builder' />;
   }
 
   const submit = async () => {
@@ -46,6 +47,7 @@ export default function AuthScreen() {
           identifier: identifier.trim(),
           password: password.trim(),
         });
+        router.replace('/profile-builder');
         return;
       }
 
@@ -63,6 +65,7 @@ export default function AuthScreen() {
         email: email.trim() || undefined,
         telefono: telefono.trim() || undefined,
       });
+      router.replace('/profile-builder');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'No se pudo autenticar.';

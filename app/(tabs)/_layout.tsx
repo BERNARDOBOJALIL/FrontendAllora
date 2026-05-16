@@ -93,6 +93,12 @@ function CustomTabBar({
       inactiveColor: "#999999",
       label: "Radar",
     },
+    {
+      name: "account-circle",
+      activeColor: "#ff2d78",
+      inactiveColor: "#999999",
+      label: "Perfil",
+    },
   ];
 
   return (
@@ -177,6 +183,12 @@ export default function TabLayout() {
         name="location"
         options={{
           title: "Location",
+        }}
+      />
+      <Tabs.Screen
+        name="my-profile"
+        options={{
+          title: "Mi Perfil",
         }}
       />
     </Tabs>

@@ -26,6 +26,10 @@ export default function HomeScreen() {
         Ir a Radar de ubicacion
       </Link>
 
+      <Link href='/profile-builder' style={styles.link}>
+        Construir perfil con el agente
+      </Link>
+
       <Pressable style={styles.logoutButton} onPress={logout}>
         <Text style={styles.logoutText}>Cerrar sesion</Text>
       </Pressable>
