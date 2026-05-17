@@ -1,5 +1,5 @@
-import { Redirect, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { Link, Redirect } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { useAuth } from '@/providers/auth-context';
 import {
@@ -21,444 +22,585 @@ import {
 } from '@/services/profile-agent';
 import { getProfileMemory } from '@/services/profile';
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const STARTERS = [
-  'Me gusta la musica tranquila y creativa',
+  'Me gusta la música tranquila y creativa',
   'Busco conocer gente con buena vibra',
-  'Me gustan los cafes y los parques',
-  'Quiero un perfil honesto y autentico',
+  'Me gustan los cafés y los parques',
+  'Quiero un perfil honesto y auténtico',
 ];
+
+const PROGRESS_STEPS = 6;
 
 function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function SummaryLine({ label, value }: { label: string; value?: string[] }) {
-  const text = value && value.length > 0 ? value.join(' · ') : 'Sin datos aún';
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
 
+function AgentAvatar({ size = 36 }: { size?: number }) {
   return (
-    <View style={styles.summaryBlock}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryText}>{text}</Text>
+    <View
+      style={[
+        styles.agentAv,
+        { width: size, height: size, borderRadius: size / 2 },
+      ]}
+    >
+      <Text style={[styles.agentAvLetter, { fontSize: size * 0.45 }]}>A</Text>
     </View>
   );
 }
 
-function SummaryText({ label, value }: { label: string; value?: string }) {
+function TagStrip({ snapshot }: { snapshot: Partial<ProfileSnapshot> | null }) {
+  const tags: string[] = [
+    ...(snapshot?.interests ?? []),
+    ...(snapshot?.hobbies ?? []),
+    ...(snapshot?.traits ?? []),
+  ].slice(0, 6);
+
+  if (tags.length === 0) return null;
+
   return (
-    <View style={styles.summaryBlock}>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryText}>{value?.trim() ? value : 'Sin datos aún'}</Text>
+    <View style={styles.tagStrip}>
+      <Text style={styles.tagStripLabel}>Ya sé de ti:</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tagScroll}>
+        {tags.map((t) => (
+          <View key={t} style={styles.tag}>
+            <Text style={styles.tagText}>{t}</Text>
+          </View>
+        ))}
+      </ScrollView>
     </View>
   );
 }
+
+function ProgressBar({ filled, total }: { filled: number; total: number }) {
+  const pct = Math.round((filled / total) * 100);
+  return (
+    <View style={styles.progressRow}>
+      <View style={styles.progressBg}>
+        <LinearGradient
+          colors={['#f4547a', '#f87a5a']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.progressFill, { width: `${pct}%` as any }]}
+        />
+      </View>
+      <Text style={styles.progressPct}>{pct}%</Text>
+    </View>
+  );
+}
+
+function MessageBubble({ message }: { message: AgentMessage }) {
+  const isUser = message.role === 'user';
+  return (
+    <View style={[styles.msgRow, isUser && styles.msgRowUser]}>
+      {!isUser && <AgentAvatar size={30} />}
+      <View style={[styles.bubbleWrap, isUser && styles.bubbleWrapUser]}>
+        {isUser ? (
+          <LinearGradient
+            colors={['#f4547a', '#f87a5a']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={[styles.bubble, styles.bubbleUser]}
+          >
+            <Text style={styles.bubbleUserText}>{message.text}</Text>
+          </LinearGradient>
+        ) : (
+          <View style={[styles.bubble, styles.bubbleAi]}>
+            <Text style={styles.bubbleAiText}>{message.text}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <View style={styles.msgRow}>
+      <AgentAvatar size={30} />
+      <View style={[styles.bubble, styles.bubbleAi, styles.typingBubble]}>
+        <ActivityIndicator size="small" color="#f4547a" />
+      </View>
+    </View>
+  );
+}
+
+function StarterChip({
+  label,
+  onPress,
+}: {
+  label: string;
+  onPress: (label: string) => void;
+}) {
+  return (
+    <Pressable style={styles.chip} onPress={() => onPress(label)}>
+      <Text style={styles.chipText}>{label}</Text>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main screen
+// ---------------------------------------------------------------------------
 
 export default function ProfileBuilderScreen() {
-  const router = useRouter();
   const { user, isAuthenticated, accessToken } = useAuth();
+  const scrollRef = useRef<ScrollView>(null);
 
   const [messages, setMessages] = useState<AgentMessage[]>([
     {
       id: createId('assistant'),
       role: 'assistant',
-      text: 'Hola, soy Allora. Cuentame sobre ti y voy construyendo tu perfil contigo.',
+      text: '¡Hola! Soy Allora. Cuéntame sobre ti y voy construyendo tu perfil contigo.',
     },
   ]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Partial<ProfileSnapshot> | null>(null);
-  const [lastAssistantText, setLastAssistantText] = useState<string | null>(null);
 
-  const canContinue = useMemo(() => input.trim().length > 0 && !isSending, [input, isSending]);
+  // Derived progress: count non-empty snapshot fields
+  const filledFields = useMemo(() => {
+    if (!profileSnapshot) return 0;
+    return Object.values(profileSnapshot).filter((v) =>
+      Array.isArray(v) ? v.length > 0 : Boolean(v?.trim?.())
+    ).length;
+  }, [profileSnapshot]);
 
+  const canSend = input.trim().length > 0 && !isSending;
+
+  // Load existing profile memory on mount
   useEffect(() => {
     if (!user?.id || !accessToken) return;
-
     let active = true;
-
-    const loadProfile = async () => {
+    (async () => {
       try {
         const response = await getProfileMemory(user.id, accessToken);
         if (!active) return;
-
         if (response.profile_memory) {
           setProfileSnapshot(response.profile_memory as Partial<ProfileSnapshot>);
         }
       } catch {
-        // Best effort: if the backend has no stored memory yet, keep the chat empty-state.
+        // best-effort
       }
-    };
-
-    void loadProfile();
-
-    return () => {
-      active = false;
-    };
+    })();
+    return () => { active = false; };
   }, [user?.id, accessToken]);
 
-  if (!isAuthenticated) {
-    return <Redirect href='/auth' />;
-  }
+  if (!isAuthenticated) return <Redirect href="/auth" />;
 
   const sendMessage = async (text: string) => {
-    const cleanText = text.trim();
-    if (!cleanText || isSending) return;
+    const clean = text.trim();
+    if (!clean || isSending) return;
 
     setErrorMessage(null);
     setIsSending(true);
 
-    const userMessage: AgentMessage = {
-      id: createId('user'),
-      role: 'user',
-      text: cleanText,
-    };
-
-    setMessages((current) => [...current, userMessage]);
+    const userMsg: AgentMessage = { id: createId('user'), role: 'user', text: clean };
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
 
     try {
       const result = await sendProfileMessage({
-        text: cleanText,
-        history: [...messages, userMessage],
+        text: clean,
+        history: [...messages, userMsg],
         userId: user?.id,
         name: user?.nombre,
         email: user?.email,
         token: accessToken ?? undefined,
       });
 
-      if (result.assistantText) setLastAssistantText(result.assistantText);
-
       if (result.profileSnapshot) {
-        setProfileSnapshot((current) => ({
-          ...current,
-          ...result.profileSnapshot,
-        }));
+        setProfileSnapshot((prev) => ({ ...prev, ...result.profileSnapshot }));
       }
 
-      setMessages((current) => [
-        ...current,
+      setMessages((prev) => [
+        ...prev,
         {
           id: createId('assistant'),
           role: 'assistant',
           text:
             result.assistantText ??
-            'Recibido. Sigueme contando un poco mas para completar tu perfil.',
+            'Recibido. Sígueme contando un poco más para completar tu perfil.',
         },
       ]);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'No se pudo hablar con el agente.';
-      setErrorMessage(message);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : 'No se pudo hablar con el agente.'
+      );
     } finally {
       setIsSending(false);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
-        style={styles.safeArea}
+        style={styles.safe}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
       >
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Construir perfil</Text>
-            <Text style={styles.subtitle}>
-              Chatea con el agente para completar tu perfil.
-            </Text>
+        {/* ── Top bar ── */}
+        <View style={styles.topBar}>
+          <View style={styles.topBarRow}>
+            <AgentAvatar size={42} />
+            <View style={styles.topBarInfo}>
+              <Text style={styles.topBarName}>Allora</Text>
+              <Text style={styles.topBarSub}>Construyendo tu perfil</Text>
+            </View>
+            <Link href="/(tabs)/my-profile" style={styles.editLink}>
+              <Text style={styles.editLinkText}>Editar perfil</Text>
+            </Link>
           </View>
+          <ProgressBar filled={filledFields} total={PROGRESS_STEPS} />
+        </View>
 
-          <View style={styles.profileBox}>
-            <Text style={styles.sectionTitle}>Lo que ya entendí</Text>
-            {lastAssistantText ? (
-              <View style={styles.assistantCard}>
-                <Text style={styles.assistantCardLabel}>Última respuesta del agente</Text>
-                <Text style={styles.assistantCardText}>{lastAssistantText}</Text>
-              </View>
-            ) : null}
+        {/* ── Tags strip ── */}
+        <TagStrip snapshot={profileSnapshot} />
 
-            {profileSnapshot ? (
-              <View style={styles.summaryGrid}>
-                <SummaryLine label="Intereses" value={profileSnapshot.interests} />
-                <SummaryLine label="Rasgos" value={profileSnapshot.traits} />
-                <SummaryLine label="Hobbies" value={profileSnapshot.hobbies} />
-                <SummaryLine label="Ambientes" value={profileSnapshot.favoriteEnvironments} />
-                <SummaryText label="Estilo social" value={profileSnapshot.socialStyle} />
-                <SummaryText label="Resumen" value={profileSnapshot.vibeSummary} />
-                <SummaryText label="Emoción" value={profileSnapshot.emotionalStyle} />
-                <SummaryText label="Tema actual" value={profileSnapshot.currentMoodTheme} />
-                <SummaryText label="Profundidad" value={profileSnapshot.depthPreference} />
-                <Pressable
-                  style={styles.profileShortcut}
-                  onPress={() => router.push('/(tabs)/my-profile')}
-                >
-                  <Text style={styles.profileShortcutText}>Editar en Mi perfil</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <Text style={styles.helperText}>
-                Aun no hay datos suficientes. Empieza con una frase sobre ti y el agente irá
-                construyendo tu perfil.
-              </Text>
-            )}
-          </View>
+        {/* ── Chat ── */}
+        <ScrollView
+          ref={scrollRef}
+          style={styles.chatList}
+          contentContainerStyle={styles.chatContent}
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+        >
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+          {isSending && <TypingIndicator />}
+        </ScrollView>
 
-          <ScrollView style={styles.chatList} contentContainerStyle={styles.chatContent}>
-            {messages.map((message) => (
-              <View
-                key={message.id}
-                style={[
-                  styles.messageBubble,
-                  message.role === 'user' ? styles.userBubble : styles.assistantBubble,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.messageText,
-                    message.role === 'user' ? styles.userText : styles.assistantText,
-                  ]}
-                >
-                  {message.text}
-                </Text>
-              </View>
+        {/* ── Error ── */}
+        {errorMessage ? (
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        ) : null}
+
+        {/* ── Starter chips ── */}
+        <View style={styles.chipsWrapper}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipsContent}
+          >
+            {STARTERS.map((s) => (
+              <StarterChip key={s} label={s} onPress={(t) => setInput(t)} />
             ))}
-            {isSending && (
-              <View style={[styles.messageBubble, styles.assistantBubble]}>
-                <ActivityIndicator color='#111111' />
-              </View>
-            )}
           </ScrollView>
+        </View>
 
-          {errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
-
-          <View style={styles.startersRow}>
-            {STARTERS.map((starter) => (
-              <Pressable key={starter} onPress={() => setInput(starter)} style={styles.starterChip}>
-                <Text style={styles.starterText}>{starter}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={styles.composer}>
+        {/* ── Composer ── */}
+        <View style={styles.composer}>
+          <View style={styles.inputBox}>
             <TextInput
-              placeholder='Escribe como eres, que buscas, tus gustos...'
+              style={styles.input}
+              placeholder="Escribe como eres, qué buscas..."
+              placeholderTextColor="#b08090"
               value={input}
               onChangeText={setInput}
-              style={styles.input}
               multiline
             />
-            <Pressable
-              onPress={() => sendMessage(input)}
-              style={[styles.sendButton, !canContinue && styles.sendButtonDisabled]}
-              disabled={!canContinue}
-            >
-              <Text style={styles.sendButtonText}>Enviar</Text>
-            </Pressable>
           </View>
-
-          <Pressable onPress={() => router.replace('/(tabs)')} style={styles.skipButton}>
-            <Text style={styles.skipText}>Terminar despues</Text>
+          <Pressable
+            style={[styles.sendBtn, !canSend && styles.sendBtnDisabled]}
+            disabled={!canSend}
+            onPress={() => sendMessage(input)}
+          >
+            <LinearGradient
+              colors={canSend ? ['#f4547a', '#f87a5a'] : ['#f4c4cc', '#f7c4b4']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.sendBtnGradient}
+            >
+              <Text style={styles.sendBtnIcon}>↑</Text>
+            </LinearGradient>
           </Pressable>
         </View>
+
+        {/* ── Skip ── */}
+        <Link href="/(tabs)" style={styles.skipBtn}>
+          <Text style={styles.skipText}>Terminar después</Text>
+        </Link>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
 const styles = StyleSheet.create({
-  safeArea: {
+  safe: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fdf0f0',
   },
-  container: {
-    flex: 1,
+
+  // Top bar
+  topBar: {
+    backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingTop: 14,
-    gap: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0d8de',
   },
-  header: {
-    gap: 4,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#111111',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#666666',
-  },
-  profileBox: {
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 12,
-    padding: 12,
-    gap: 8,
-  },
-  assistantCard: {
-    backgroundColor: '#111111',
-    borderRadius: 12,
-    padding: 12,
-  },
-  assistantCardLabel: {
-    color: '#f1f1f1',
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 6,
-  },
-  assistantCardText: {
-    color: '#ffffff',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  summaryGrid: {
+  topBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
   },
-  summaryBlock: {
-    gap: 4,
+  topBarInfo: {
+    flex: 1,
   },
-  summaryLabel: {
+  topBarName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1a1a1a',
+  },
+  topBarSub: {
     fontSize: 11,
-    color: '#777777',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    fontWeight: '600',
+    color: '#b08090',
+    marginTop: 1,
   },
-  summaryText: {
-    fontSize: 14,
-    color: '#111111',
-    lineHeight: 20,
-  },
-  profileShortcut: {
-    alignSelf: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#111111',
-    borderRadius: 999,
+  editLink: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 2,
+    paddingVertical: 6,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: '#f0d8de',
   },
-  profileShortcutText: {
-    color: '#111111',
-    fontSize: 13,
-    fontWeight: '600',
+  editLinkText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#f4547a',
   },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111111',
+
+  // Agent avatar
+  agentAv: {
+    backgroundColor: '#fce8ec',
+    borderWidth: 1.5,
+    borderColor: '#f5c8d4',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  profileRow: {
-    gap: 2,
+  agentAvLetter: {
+    fontWeight: '800',
+    color: '#f4547a',
   },
-  profileLabel: {
+
+  // Progress
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+  },
+  progressBg: {
+    flex: 1,
+    height: 5,
+    backgroundColor: '#fce8ec',
+    borderRadius: 99,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 99,
+  },
+  progressPct: {
     fontSize: 11,
-    color: '#777777',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '700',
+    color: '#f4547a',
+    minWidth: 32,
+    textAlign: 'right',
   },
-  profileValue: {
-    fontSize: 13,
-    color: '#111111',
+
+  // Tags
+  tagStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0d8de',
+    gap: 8,
   },
-  helperText: {
-    fontSize: 13,
-    color: '#666666',
+  tagStripLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#b08090',
   },
+  tagScroll: {
+    flex: 1,
+  },
+  tag: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 99,
+    backgroundColor: '#fce8ec',
+    borderWidth: 1,
+    borderColor: '#f5c8d4',
+    marginRight: 6,
+  },
+  tagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#f4547a',
+  },
+
+  // Chat
   chatList: {
     flex: 1,
   },
   chatContent: {
-    gap: 10,
+    paddingHorizontal: 14,
+    paddingTop: 16,
     paddingBottom: 8,
+    gap: 12,
   },
-  messageBubble: {
-    maxWidth: '85%',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  userBubble: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#111111',
-  },
-  assistantBubble: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#f4f4f4',
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
-  },
-  messageText: {
-    fontSize: 14,
-    lineHeight: 19,
-  },
-  userText: {
-    color: '#ffffff',
-  },
-  assistantText: {
-    color: '#111111',
-  },
-  errorText: {
-    color: '#c1121f',
-    fontSize: 12,
-  },
-  startersRow: {
+  msgRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'flex-end',
     gap: 8,
   },
-  starterChip: {
-    borderWidth: 1,
-    borderColor: '#dddddd',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+  msgRowUser: {
+    flexDirection: 'row-reverse',
   },
-  starterText: {
-    fontSize: 12,
-    color: '#111111',
+  bubbleWrap: {
+    maxWidth: '78%',
   },
-  composer: {
-    flexDirection: 'row',
-    gap: 10,
+  bubbleWrapUser: {
     alignItems: 'flex-end',
   },
-  input: {
-    flex: 1,
-    minHeight: 48,
-    maxHeight: 120,
+  bubble: {
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  bubbleAi: {
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#dddddd',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
+    borderColor: '#f0d8de',
+    borderBottomLeftRadius: 5,
+  },
+  bubbleAiText: {
+    fontSize: 13.5,
+    lineHeight: 21,
+    color: '#1a1a1a',
+  },
+  bubbleUser: {
+    borderBottomRightRadius: 5,
+  },
+  bubbleUserText: {
+    fontSize: 13.5,
+    lineHeight: 21,
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+  typingBubble: {
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
+
+  // Error
+  errorText: {
+    fontSize: 12,
+    color: '#e02020',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+
+  // Chips
+  chipsWrapper: {
+    height: 48,
+    flexShrink: 0,
+  },
+  chipsContent: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    gap: 8,
+    alignItems: 'center',
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 99,
+    borderWidth: 1.5,
+    borderColor: '#f0d8de',
     backgroundColor: '#ffffff',
   },
-  sendButton: {
-    height: 48,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    backgroundColor: '#111111',
+  chipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#f4547a',
+  },
+
+  // Composer
+  composer: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-end',
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f0d8de',
+    backgroundColor: '#ffffff',
+  },
+  inputBox: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#f0d8de',
+    borderRadius: 16,
+    backgroundColor: '#fdf0f0',
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+  input: {
+    fontSize: 13.5,
+    color: '#1a1a1a',
+    maxHeight: 90,
+    lineHeight: 20,
+  },
+  sendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  sendBtnDisabled: {
+    opacity: 0.4,
+  },
+  sendBtnGradient: {
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendButtonDisabled: {
-    opacity: 0.45,
-  },
-  sendButtonText: {
+  sendBtnIcon: {
+    fontSize: 18,
     color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
-  skipButton: {
+
+  // Skip
+  skipBtn: {
     alignItems: 'center',
-    paddingVertical: 4,
+    paddingVertical: 10,
   },
   skipText: {
-    color: '#666666',
     fontSize: 13,
+    color: '#b08090',
+    textAlign: 'center',
   },
 });

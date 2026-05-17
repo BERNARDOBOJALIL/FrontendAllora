@@ -16,6 +16,29 @@ type TabBarIconConfig = {
   label: string;
 };
 
+type TabRouteName = 'index' | 'location' | 'my-profile';
+
+const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
+  index: {
+    name: 'home-variant',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Home',
+  },
+  location: {
+    name: 'radar',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Radar',
+  },
+  'my-profile': {
+    name: 'account-circle',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Perfil',
+  },
+};
+
 function TabBarIcon({
   icon,
   focused,
@@ -74,32 +97,17 @@ function CustomTabBar({
 }) {
   useColorScheme();
 
-  const tabIcons: TabBarIconConfig[] = [
-    {
-      name: "home-variant",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Home",
-    },
-    {
-      name: "radar",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Radar",
-    },
-    {
-      name: "account-circle",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Perfil",
-    },
-  ];
-
   return (
     <View style={styles.tabBarContainer}>
       <View style={styles.tabBar}>
-        {state.routes.map((route: any, index: number) => {
-          const isFocused = state.index === index;
+        {state.routes.map((route: any) => {
+          const icon = TAB_CONFIG[route.name as TabRouteName];
+
+          if (!icon) {
+            return null;
+          }
+
+          const isFocused = state.routes[state.index]?.name === route.name;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -127,7 +135,7 @@ function CustomTabBar({
               onLongPress={onLongPress}
               style={[styles.tabItem, isFocused && styles.tabItemActive]}
             >
-              <TabBarIcon icon={tabIcons[index]} focused={isFocused} />
+              <TabBarIcon icon={icon} focused={isFocused} />
               <Text
                 style={[
                   styles.tabLabel,
@@ -137,7 +145,7 @@ function CustomTabBar({
                   },
                 ]}
               >
-                {tabIcons[index].label}
+                {icon.label}
               </Text>
             </HapticTab>
           );
