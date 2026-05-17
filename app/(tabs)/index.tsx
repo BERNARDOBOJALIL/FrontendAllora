@@ -29,6 +29,10 @@ export default function HomeScreen() {
       <Pressable style={styles.logoutButton} onPress={logout}>
         <Text style={styles.logoutText}>Cerrar sesion</Text>
       </Pressable>
+
+      <Link href="/unlock-demo" style={{ marginTop: 20, color: '#ff2d78' }}>
+        Probar desbloqueo de foto
+      </Link>
     </View>
   );
 }

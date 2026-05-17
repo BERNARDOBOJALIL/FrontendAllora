@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = 'http://localhost:8000';
+const DEFAULT_API_BASE_URL = 'http://192.168.3.171:8000';
 
 export class ApiError extends Error {
   status: number;
