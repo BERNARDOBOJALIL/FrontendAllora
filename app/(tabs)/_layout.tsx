@@ -1,3 +1,4 @@
+// app/(tabs)/_layout.tsx
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
 import React from "react";
@@ -7,7 +8,7 @@ import { HapticTab } from "@/components/haptic-tab";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/providers/auth-context";
 
-// ─── Custom Tab Bar ──────────────────────────────────────────────────────────
+// ─── Tab Config ───────────────────────────────────────────────────────────────
 
 type TabBarIconConfig = {
   name: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -16,7 +17,8 @@ type TabBarIconConfig = {
   label: string;
 };
 
-type TabRouteName = 'index' | 'location' | 'my-profile';
+// 'explore' added — maps to app/(tabs)/explore.tsx
+type TabRouteName = 'index' | 'explore' | 'location' | 'my-profile';
 
 const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
   index: {
@@ -24,6 +26,12 @@ const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
     activeColor: '#ff2d78',
     inactiveColor: '#999999',
     label: 'Home',
+  },
+  explore: {
+    name: 'cards-playing-heart-multiple',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Descubrir',
   },
   location: {
     name: 'radar',
@@ -38,6 +46,8 @@ const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
     label: 'Perfil',
   },
 };
+
+// ─── TabBarIcon ───────────────────────────────────────────────────────────────
 
 function TabBarIcon({
   icon,
@@ -71,20 +81,19 @@ function TabBarIcon({
     <Animated.View
       style={[
         styles.tabIconContainer,
-        {
-          opacity: opacityRef,
-          transform: [{ scale: scaleRef }],
-        },
+        { opacity: opacityRef, transform: [{ scale: scaleRef }] },
       ]}
     >
       <MaterialCommunityIcons
         name={icon.name}
-        size={28}
+        size={26}
         color={focused ? icon.activeColor : icon.inactiveColor}
       />
     </Animated.View>
   );
 }
+
+// ─── CustomTabBar ─────────────────────────────────────────────────────────────
 
 function CustomTabBar({
   state,
@@ -102,10 +111,7 @@ function CustomTabBar({
       <View style={styles.tabBar}>
         {state.routes.map((route: any) => {
           const icon = TAB_CONFIG[route.name as TabRouteName];
-
-          if (!icon) {
-            return null;
-          }
+          if (!icon) return null;
 
           const isFocused = state.routes[state.index]?.name === route.name;
 
@@ -115,17 +121,13 @@ function CustomTabBar({
               target: route.key,
               canPreventDefault: true,
             });
-
             if (!isFocused && !event.defaultPrevented) {
               navigation.navigate(route.name, route.params);
             }
           };
 
           const onLongPress = () => {
-            navigation.emit({
-              type: "tabLongPress",
-              target: route.key,
-            });
+            navigation.emit({ type: "tabLongPress", target: route.key });
           };
 
           return (
@@ -155,6 +157,8 @@ function CustomTabBar({
   );
 }
 
+// ─── Layout ───────────────────────────────────────────────────────────────────
+
 export default function TabLayout() {
   const { isAuthenticated } = useAuth();
 
@@ -164,29 +168,13 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      screenOptions={{
-        headerShown: false,
-      }}
+      screenOptions={{ headerShown: false }}
       tabBar={(props) => <CustomTabBar {...props} />}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-        }}
-      />
-      <Tabs.Screen
-        name="location"
-        options={{
-          title: "Location",
-        }}
-      />
-      <Tabs.Screen
-        name="my-profile"
-        options={{
-          title: "Mi Perfil",
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="explore" options={{ title: "Descubrir" }} />
+      <Tabs.Screen name="location" options={{ title: "Location" }} />
+      <Tabs.Screen name="my-profile" options={{ title: "Mi Perfil" }} />
     </Tabs>
   );
 }
@@ -209,7 +197,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(0, 0, 0, 0.05)",
-    backdropFilter: "blur(20px)",
     shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 16,
@@ -220,9 +207,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 3,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     borderRadius: 16,
   },
   tabItemActive: {
@@ -233,8 +220,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
 });

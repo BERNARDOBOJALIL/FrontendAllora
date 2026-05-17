@@ -13,11 +13,11 @@ import {
 } from "react-native";
 
 
+import { useAuth } from "@/providers/auth-context";
 import {
   LocationWebSocketService,
   SocketStatus,
 } from "@/services/location-websocket";
-import { useAuth } from "@/providers/auth-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1169,6 +1169,7 @@ const styles = StyleSheet.create({
   },
   statIconDot: { width: 8, height: 8, borderRadius: 4 },
   onlineDot: { width: 7, height: 7, borderRadius: 4 },
+  userStatusRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   userStatus: { fontSize: 9, fontWeight: "600", textAlign: "center" },
 
   // Place bubble
