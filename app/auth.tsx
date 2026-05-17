@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { Redirect } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -49,6 +49,7 @@ export default function AuthScreen() {
           identifier: identifier.trim(),
           password: password.trim(),
         });
+        router.replace('/(tabs)');
         return;
       }
 
