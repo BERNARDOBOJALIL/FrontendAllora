@@ -70,16 +70,18 @@ export default function HomeScreen() {
           </Link>
         </View>
 
-        <View style={styles.accountCard}>
-          <Text style={styles.sectionTitle}>Cuenta</Text>
-          <Text style={styles.accountName}>{user?.nombre ?? 'Sin nombre'}</Text>
-          <Text style={styles.accountMeta}>{user?.email ?? user?.telefono ?? 'Sin contacto'}</Text>
-          <Pressable style={styles.logoutButton} onPress={logout}>
-            <Text style={styles.logoutText}>Cerrar sesión</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+      <Pressable style={styles.logoutButton} onPress={logout}>
+        <Text style={styles.logoutText}>Cerrar sesion</Text>
+      </Pressable>
+
+      <Link href="/unlock-demo" style={{ marginTop: 20, color: '#ff2d78' }}>
+        Probar desbloqueo de foto
+      </Link>
+
+      <Link href="/progressive-profile" style={styles.link}>
+        Ver perfil con desbloqueo progresivo
+      </Link>
+    </View>
   );
 }
 

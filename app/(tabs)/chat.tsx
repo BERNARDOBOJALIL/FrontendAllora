@@ -1,32 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import {
-    ActivityIndicator,
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 
 import { styles } from '@/app/(tabs)/chat.styles';
 import { useAuth } from '@/providers/auth-context';
 import {
-    Conversation,
-    getConversations,
-    getGroupConversations,
-    getGroupMessages,
-    getMessages,
-    getPresence,
-    markConversationAsRead,
-    markOffline,
-    markOnline,
-    Message,
-    sendGroupMessage,
-    sendMessage,
+  Conversation,
+  createConversation,
+  getConversations,
+  getMessages,
+  getPresence,
+  markConversationAsRead,
+  markOffline,
+  markOnline,
+  Message,
+  sendMessage,
 } from '@/services/chat';
 
 function formatDate(dateString: string) {

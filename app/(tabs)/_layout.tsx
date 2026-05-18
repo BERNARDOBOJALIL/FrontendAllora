@@ -177,11 +177,25 @@ export default function TabLayout() {
       screenOptions={{ headerShown: false }}
       tabBar={(props) => <CustomTabBar {...props} />}
     >
-      <Tabs.Screen name="index" options={{ title: "Home" }} />
-      <Tabs.Screen name="chat" options={{ title: "Chat" }} />
-      <Tabs.Screen name="match-service" options={{ title: "Match Service" }} />
-      <Tabs.Screen name="location" options={{ title: "Location" }} />
-      <Tabs.Screen name="my-profile" options={{ title: "Mi Perfil" }} />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Home",
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: "Explore",
+        }}
+      />
+      <Tabs.Screen
+        name="location"
+        options={{
+          title: "Location",
+        }}
+      />
+      <Tabs.Screen name="chat-mock" options={{ title: "Chat Mock" }} />
     </Tabs>
   );
 }
