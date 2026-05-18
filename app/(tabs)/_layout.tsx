@@ -1,3 +1,4 @@
+// app/(tabs)/_layout.tsx
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
 import React from "react";
@@ -7,7 +8,7 @@ import { HapticTab } from "@/components/haptic-tab";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAuth } from "@/providers/auth-context";
 
-// ─── Custom Tab Bar ──────────────────────────────────────────────────────────
+// ─── Tab Config ───────────────────────────────────────────────────────────────
 
 type TabBarIconConfig = {
   name: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -15,6 +16,44 @@ type TabBarIconConfig = {
   inactiveColor: string;
   label: string;
 };
+
+// 'explore' added — maps to app/(tabs)/explore.tsx
+type TabRouteName = 'index' | 'chat' | 'location' | 'match-service' | 'my-profile' ;
+
+const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
+  index: {
+    name: 'home-variant',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Home',
+  },
+  chat: {
+    name: 'chat',
+    activeColor: '#14b8a6',
+    inactiveColor: '#999999',
+    label: 'Chat',
+  },
+  'match-service': {
+    name: 'heart-multiple',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Match',
+  },
+  location: {
+    name: 'radar',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Radar',
+  },
+  'my-profile': {
+    name: 'account-circle',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Perfil',
+  },
+};
+
+// ─── TabBarIcon ───────────────────────────────────────────────────────────────
 
 function TabBarIcon({
   icon,
@@ -48,20 +87,19 @@ function TabBarIcon({
     <Animated.View
       style={[
         styles.tabIconContainer,
-        {
-          opacity: opacityRef,
-          transform: [{ scale: scaleRef }],
-        },
+        { opacity: opacityRef, transform: [{ scale: scaleRef }] },
       ]}
     >
       <MaterialCommunityIcons
         name={icon.name}
-        size={28}
+        size={26}
         color={focused ? icon.activeColor : icon.inactiveColor}
       />
     </Animated.View>
   );
 }
+
+// ─── CustomTabBar ─────────────────────────────────────────────────────────────
 
 function CustomTabBar({
   state,
@@ -74,38 +112,14 @@ function CustomTabBar({
 }) {
   useColorScheme();
 
-  const tabIcons: TabBarIconConfig[] = [
-    {
-      name: "home-variant",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Home",
-    },
-    {
-      name: "compass",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Explore",
-    },
-    {
-      name: "radar",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Radar",
-    },
-    {
-      name: "chat",
-      activeColor: "#ff2d78",
-      inactiveColor: "#999999",
-      label: "Chat",
-    },
-  ];
-
   return (
     <View style={styles.tabBarContainer}>
       <View style={styles.tabBar}>
-        {state.routes.map((route: any, index: number) => {
-          const isFocused = state.index === index;
+        {state.routes.map((route: any) => {
+          const icon = TAB_CONFIG[route.name as TabRouteName];
+          if (!icon) return null;
+
+          const isFocused = state.routes[state.index]?.name === route.name;
 
           const onPress = () => {
             const event = navigation.emit({
@@ -113,17 +127,13 @@ function CustomTabBar({
               target: route.key,
               canPreventDefault: true,
             });
-
             if (!isFocused && !event.defaultPrevented) {
               navigation.navigate(route.name, route.params);
             }
           };
 
           const onLongPress = () => {
-            navigation.emit({
-              type: "tabLongPress",
-              target: route.key,
-            });
+            navigation.emit({ type: "tabLongPress", target: route.key });
           };
 
           return (
@@ -133,7 +143,7 @@ function CustomTabBar({
               onLongPress={onLongPress}
               style={[styles.tabItem, isFocused && styles.tabItemActive]}
             >
-              <TabBarIcon icon={tabIcons[index]} focused={isFocused} />
+              <TabBarIcon icon={icon} focused={isFocused} />
               <Text
                 style={[
                   styles.tabLabel,
@@ -143,7 +153,7 @@ function CustomTabBar({
                   },
                 ]}
               >
-                {tabIcons[index].label}
+                {icon.label}
               </Text>
             </HapticTab>
           );
@@ -152,6 +162,8 @@ function CustomTabBar({
     </View>
   );
 }
+
+// ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function TabLayout() {
   const { isAuthenticated } = useAuth();
@@ -162,9 +174,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      screenOptions={{
-        headerShown: false,
-      }}
+      screenOptions={{ headerShown: false }}
       tabBar={(props) => <CustomTabBar {...props} />}
     >
       <Tabs.Screen
@@ -208,7 +218,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 1,
     borderColor: "rgba(0, 0, 0, 0.05)",
-    backdropFilter: "blur(20px)",
     shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 16,
@@ -219,9 +228,9 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 3,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     borderRadius: 16,
   },
   tabItemActive: {
@@ -232,8 +241,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
 });

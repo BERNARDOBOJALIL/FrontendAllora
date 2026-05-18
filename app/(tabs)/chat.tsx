@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import {
   ActivityIndicator,
   FlatList,
@@ -34,34 +35,129 @@ function formatDate(dateString: string) {
   });
 }
 
+function routeParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function isGroupConversation(conversation: Conversation) {
+  return conversation.conversation_type === 'GROUP' || conversation.participant_ids.length === 0;
+}
+
+function getConversationTitle(conversation: Conversation, currentUserId: string) {
+  if (isGroupConversation(conversation)) {
+    return conversation.name ?? conversation.title ?? 'Grupo';
+  }
+
+  return (
+    conversation.participant_ids.find((id) => id !== currentUserId) ??
+    conversation.participant_ids[0] ??
+    'Conversación'
+  );
+}
+
+function getParticipantIds(conversation: Conversation, currentUserId: string, fallbackMembers: string[] = []) {
+  const ids = conversation.participant_ids.length > 0 ? conversation.participant_ids : fallbackMembers;
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+
+  if (!uniqueIds.includes(currentUserId)) {
+    uniqueIds.unshift(currentUserId);
+  }
+
+  return uniqueIds;
+}
+
+function formatParticipantLabel(participantId: string, currentUserId: string) {
+  if (participantId === currentUserId) return 'Tú';
+  const compactId = participantId.length > 8 ? participantId.slice(0, 8) : participantId;
+  return `Usuario ${compactId}`;
+}
+
+function getConversationInitials(title: string) {
+  return title
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+function mergeConversations(conversations: Conversation[]) {
+  const byId = new Map<string, Conversation>();
+  conversations.forEach((conversation) => {
+    byId.set(conversation.id, conversation);
+  });
+  return Array.from(byId.values());
+}
+
 export default function ChatScreen() {
   const { user, accessToken } = useAuth();
+  const params = useLocalSearchParams<{
+    groupConversationId?: string | string[];
+    groupName?: string | string[];
+    spaceId?: string | string[];
+    groupMembers?: string | string[];
+  }>();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [onlineStatus, setOnlineStatus] = useState<string | null>(null);
-  const [participantId, setParticipantId] = useState('');
-  const [matchId, setMatchId] = useState('');
   const [messageText, setMessageText] = useState('');
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
-  const [creatingConversation, setCreatingConversation] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [conversationError, setConversationError] = useState<string | null>(null);
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const scrollRef = useRef<FlatList<Message> | null>(null);
+  const openedGroupConversationRef = useRef<string | null>(null);
 
   const token = accessToken ?? undefined;
+  const groupConversationId = routeParam(params.groupConversationId);
+  const groupName = routeParam(params.groupName);
+  const spaceId = routeParam(params.spaceId);
+  const groupMembersParam = routeParam(params.groupMembers);
+
+  const routeGroupMembers = useMemo(() => {
+    if (!groupMembersParam) return [];
+    try {
+      const parsed = JSON.parse(groupMembersParam);
+      return Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      return [];
+    }
+  }, [groupMembersParam]);
 
   const selectedParticipantId = useMemo(() => {
     if (!selectedConversation || !user) return null;
+    if (isGroupConversation(selectedConversation)) return null;
     return (
       selectedConversation.participant_ids.find((id) => id !== user.id) ??
       selectedConversation.participant_ids[0] ??
       null
     );
   }, [selectedConversation, user]);
+
+  const loadConversationList = useCallback(async () => {
+    if (!token) return;
+
+    const directConversations = await getConversations(token);
+    let groupConversations: Conversation[] = [];
+
+    try {
+      groupConversations = (await getGroupConversations(token)).map((conversation) => ({
+        ...conversation,
+        conversation_type: 'GROUP',
+        participant_ids: conversation.participant_ids ?? [],
+        match_id: conversation.match_id ?? null,
+        unread_count: conversation.unread_count ?? 0,
+      }));
+    } catch {
+      groupConversations = [];
+    }
+
+    const nextConversations = mergeConversations([...directConversations, ...groupConversations]);
+    setConversations(nextConversations);
+    return nextConversations;
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -70,8 +166,7 @@ export default function ChatScreen() {
       setErrorMessage(null);
       setLoadingConversations(true);
       try {
-        const response = await getConversations(token);
-        setConversations(response);
+        await loadConversationList();
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Error al cargar conversaciones.');
       } finally {
@@ -80,7 +175,7 @@ export default function ChatScreen() {
     };
 
     load();
-  }, [token]);
+  }, [loadConversationList, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -94,37 +189,44 @@ export default function ChatScreen() {
   const refreshConversationList = async () => {
     if (!token) return;
     try {
-      const response = await getConversations(token);
-      setConversations(response);
-    } catch (error) {
+      await loadConversationList();
+    } catch {
       // preserve existing list if refresh fails
     }
   };
 
-  const loadConversationMessages = async (conversation: Conversation) => {
-    if (!token) return;
+  const loadConversationMessages = useCallback(async (conversation: Conversation) => {
+    if (!token || !user) return;
 
     setSelectedConversation(conversation);
     setMessagesError(null);
     setLoadingMessages(true);
 
     try {
-      const fetchedMessages = await getMessages(conversation.id, { limit: 50, skip: 0 }, token);
+      const fetchedMessages = isGroupConversation(conversation)
+        ? await getGroupMessages(conversation.id, { limit: 50, skip: 0 }, token)
+        : await getMessages(conversation.id, { limit: 50, skip: 0 }, token);
       const orderedMessages = [...fetchedMessages].sort(
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
       );
       setMessages(orderedMessages);
-      await markConversationAsRead(conversation.id, token);
-      setConversations((current) =>
-        current.map((item) =>
-          item.id === conversation.id ? { ...item, unread_count: 0 } : item,
-        ),
-      );
+      if (!isGroupConversation(conversation)) {
+        await markConversationAsRead(conversation.id, token);
+        setConversations((current) =>
+          current.map((item) =>
+            item.id === conversation.id ? { ...item, unread_count: 0 } : item,
+          ),
+        );
+      }
     } catch (error) {
       setMessagesError(error instanceof Error ? error.message : 'No se pudieron cargar mensajes.');
       setMessages([]);
     } finally {
       setLoadingMessages(false);
+      if (isGroupConversation(conversation)) {
+        setOnlineStatus(null);
+        return;
+      }
       const conversationParticipantId =
         conversation.participant_ids.find((id) => id !== user.id) ??
         conversation.participant_ids[0];
@@ -139,36 +241,57 @@ export default function ChatScreen() {
           });
       }
     }
-  };
+  }, [token, user]);
 
-  const handleSelectConversation = async (conversation: Conversation) => {
-    await loadConversationMessages(conversation);
-  };
-
-  const handleCreateConversation = async () => {
-    if (!token) return;
-    setConversationError(null);
-
-    const trimmedParticipantId = participantId.trim();
-    const trimmedMatchId = matchId.trim();
-
-    if (!trimmedParticipantId) {
-      setConversationError('Ingresa el ID del participante.');
+  useEffect(() => {
+    if (!token || !groupConversationId || openedGroupConversationRef.current === groupConversationId) {
       return;
     }
 
-    try {
-      setCreatingConversation(true);
-      const conversation = await createConversation(trimmedParticipantId, trimmedMatchId || undefined, token);
-      setParticipantId('');
-      setMatchId('');
-      await refreshConversationList();
-      await loadConversationMessages(conversation);
-    } catch (error) {
-      setConversationError(error instanceof Error ? error.message : 'No se pudo crear la conversación.');
-    } finally {
-      setCreatingConversation(false);
-    }
+    openedGroupConversationRef.current = groupConversationId;
+
+    const openGroupConversation = async () => {
+      setLoadingConversations(true);
+      try {
+        const loadedConversations = await loadConversationList();
+        const existingConversation = loadedConversations?.find(
+          (conversation) => conversation.id === groupConversationId,
+        );
+        const groupConversation =
+          existingConversation ?? {
+            id: groupConversationId,
+            participant_ids: routeGroupMembers,
+            match_id: null,
+            conversation_type: 'GROUP' as const,
+            name: groupName ?? 'Grupo',
+            title: groupName ?? 'Grupo',
+            space_id: spaceId ?? null,
+            last_message: null,
+            last_message_at: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            unread_count: 0,
+          };
+
+        setConversations((current) => mergeConversations([...current, groupConversation]));
+        await loadConversationMessages(groupConversation);
+      } catch (error) {
+        setMessagesError(error instanceof Error ? error.message : 'No se pudo abrir el chat del grupo.');
+      } finally {
+        setLoadingConversations(false);
+      }
+    };
+
+    openGroupConversation();
+  }, [loadConversationList, loadConversationMessages, token, groupConversationId, groupName, spaceId, routeGroupMembers]);
+
+  useEffect(() => {
+    if (selectedConversation || conversations.length === 0 || groupConversationId) return;
+    loadConversationMessages(conversations[0]);
+  }, [conversations, groupConversationId, loadConversationMessages, selectedConversation]);
+
+  const handleSelectConversation = async (conversation: Conversation) => {
+    await loadConversationMessages(conversation);
   };
 
   const handleSendMessage = async () => {
@@ -179,7 +302,9 @@ export default function ChatScreen() {
 
     try {
       setSendingMessage(true);
-      const sentMessage = await sendMessage(selectedConversation.id, trimmed, token);
+      const sentMessage = isGroupConversation(selectedConversation)
+        ? await sendGroupMessage(selectedConversation.id, trimmed, token)
+        : await sendMessage(selectedConversation.id, trimmed, token);
       setMessages((current) => [...current, sentMessage]);
       setMessageText('');
       await refreshConversationList();
@@ -195,6 +320,14 @@ export default function ChatScreen() {
     return null;
   }
 
+  const selectedParticipants = selectedConversation
+    ? getParticipantIds(
+        selectedConversation,
+        user.id,
+        selectedConversation.id === groupConversationId ? routeGroupMembers : [],
+      )
+    : [];
+
   return (
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView
@@ -202,43 +335,16 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Chat</Text>
-          <Text style={styles.description}>Comunícate con tus conversaciones protegidas por JWT.</Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Nueva conversación</Text>
-          <View style={styles.card}>
-            <TextInput
-              value={participantId}
-              onChangeText={setParticipantId}
-              placeholder='Participant ID'
-              style={styles.input}
-              autoCapitalize='none'
-              placeholderTextColor='#9ca3af'
-            />
-            <TextInput
-              value={matchId}
-              onChangeText={setMatchId}
-              placeholder='Match ID (opcional)'
-              style={styles.input}
-              autoCapitalize='none'
-              placeholderTextColor='#9ca3af'
-            />
-            {conversationError ? <Text style={styles.errorText}>{conversationError}</Text> : null}
-            <Pressable
-              style={[styles.button, creatingConversation && styles.buttonDisabled]}
-              onPress={handleCreateConversation}
-              disabled={creatingConversation}
-            >
-              {creatingConversation ? (
-                <ActivityIndicator color='#ffffff' />
-              ) : (
-                <Text style={styles.buttonText}>Crear o abrir conversación</Text>
-              )}
-            </Pressable>
+          <View>
+            <Text style={styles.kicker}>MENSAJES</Text>
+            <Text style={styles.title}>Chat</Text>
+          </View>
+          <View style={styles.headerBadge}>
+            <View style={styles.headerBadgeDot} />
+            <Text style={styles.headerBadgeText}>{conversations.length}</Text>
           </View>
         </View>
+
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Conversaciones</Text>
@@ -250,29 +356,47 @@ export default function ChatScreen() {
             </View>
           ) : conversations.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No hay conversaciones. Crea una nueva para comenzar.</Text>
+              <Text style={styles.emptyStateTitle}>Aún no hay chats</Text>
+              <Text style={styles.emptyStateText}>
+                Cuando tengas matches o entres a un grupo, tus conversaciones aparecerán aquí.
+              </Text>
             </View>
           ) : (
             <FlatList
               style={styles.horizontalList}
+              contentContainerStyle={styles.conversationListContent}
               data={conversations}
+              horizontal
+              showsHorizontalScrollIndicator={false}
               keyExtractor={(item) => item.id}
               renderItem={({ item }) => {
                 const isSelected = selectedConversation?.id === item.id;
-                const otherId = item.participant_ids.find((id) => id !== user.id) ?? item.participant_ids[0];
+                const conversationTitle = getConversationTitle(item, user.id);
+                const group = isGroupConversation(item);
+                const participantCount = getParticipantIds(
+                  item,
+                  user.id,
+                  item.id === groupConversationId ? routeGroupMembers : [],
+                ).length;
                 return (
                   <Pressable
                     onPress={() => handleSelectConversation(item)}
                     style={[styles.conversationItem, isSelected && styles.conversationItemSelected]}
                   >
+                    <View style={[styles.avatar, group && styles.avatarGroup]}>
+                      <Text style={styles.avatarText}>{getConversationInitials(conversationTitle)}</Text>
+                    </View>
                     <View style={styles.conversationTitleRow}>
-                      <Text style={styles.conversationTitle}>{otherId ?? 'Conversación'}</Text>
+                      <Text numberOfLines={1} style={styles.conversationTitle}>{conversationTitle}</Text>
                       {item.unread_count > 0 ? (
                         <View style={styles.unreadBadge}>
                           <Text style={styles.unreadBadgeText}>{item.unread_count}</Text>
                         </View>
                       ) : null}
                     </View>
+                    <Text style={styles.conversationType}>
+                      {group ? `${participantCount} participantes` : 'Chat directo'}
+                    </Text>
                     <Text style={styles.conversationSnippet}>
                       {item.last_message ?? 'Sin mensajes aún'}
                     </Text>
@@ -290,10 +414,49 @@ export default function ChatScreen() {
           {selectedConversation ? (
             <View style={{ flex: 1 }}>
               <View style={styles.conversationHeader}>
-                <Text style={styles.conversationTitle}>
-                  Conversación con {selectedParticipantId ?? 'participante'}
-                </Text>
-                {onlineStatus ? <Text style={styles.presenceText}>{onlineStatus}</Text> : null}
+                <View style={styles.activeConversationTitle}>
+                  <View
+                    style={[
+                      styles.avatarSmall,
+                      isGroupConversation(selectedConversation) && styles.avatarGroup,
+                    ]}
+                  >
+                    <Text style={styles.avatarSmallText}>
+                      {getConversationInitials(getConversationTitle(selectedConversation, user.id))}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text numberOfLines={1} style={styles.conversationHeaderTitle}>
+                      {isGroupConversation(selectedConversation)
+                        ? getConversationTitle(selectedConversation, user.id)
+                        : `Conversación con ${selectedParticipantId ?? 'participante'}`}
+                    </Text>
+                    <Text style={styles.conversationHeaderMeta}>
+                      {isGroupConversation(selectedConversation) ? 'Chat compartido del grupo' : 'Chat directo'}
+                    </Text>
+                  </View>
+                </View>
+                {onlineStatus && !isGroupConversation(selectedConversation) ? (
+                  <Text style={styles.presenceText}>{onlineStatus}</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.participantsPanel}>
+                <Text style={styles.participantsTitle}>Participantes</Text>
+                <FlatList
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.participantListContent}
+                  data={selectedParticipants}
+                  keyExtractor={(item) => item}
+                  renderItem={({ item }) => (
+                    <View style={styles.participantChip}>
+                      <Text style={styles.participantChipText}>
+                        {formatParticipantLabel(item, user.id)}
+                      </Text>
+                    </View>
+                  )}
+                />
               </View>
 
               {loadingMessages ? (
@@ -310,6 +473,7 @@ export default function ChatScreen() {
                 <FlatList
                   ref={scrollRef}
                   style={styles.messageList}
+                  contentContainerStyle={styles.messageListContent}
                   data={[...messages].sort(
                     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
                   )}
@@ -326,7 +490,9 @@ export default function ChatScreen() {
                         <Text style={[styles.messageText, isSentByUser && styles.messageTextSent]}>
                           {item.content}
                         </Text>
-                        <Text style={styles.messageMeta}>{formatDate(item.created_at)}</Text>
+                        <Text style={[styles.messageMeta, isSentByUser && styles.messageMetaSent]}>
+                          {formatDate(item.created_at)}
+                        </Text>
                       </View>
                     );
                   }}
@@ -341,17 +507,17 @@ export default function ChatScreen() {
                     placeholder='Escribe un mensaje'
                     style={styles.messageInput}
                     editable={!sendingMessage}
-                    placeholderTextColor='#9ca3af'
+                    placeholderTextColor='rgba(255,78,122,0.45)'
                   />
                   <Pressable
-                    style={[styles.button, (sendingMessage || messageText.trim().length === 0) && styles.buttonDisabled]}
+                    style={[styles.sendButton, (sendingMessage || messageText.trim().length === 0) && styles.buttonDisabled]}
                     onPress={handleSendMessage}
                     disabled={sendingMessage || messageText.trim().length === 0}
                   >
                     {sendingMessage ? (
                       <ActivityIndicator color='#ffffff' />
                     ) : (
-                      <Text style={styles.buttonText}>Enviar</Text>
+                      <Text style={styles.sendButtonText}>Enviar</Text>
                     )}
                   </Pressable>
                 </View>
