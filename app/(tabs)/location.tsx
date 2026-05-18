@@ -1,4 +1,4 @@
-import { Image } from "expo-image";
+﻿import { Image } from "expo-image";
 import * as Location from "expo-location";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -8,6 +8,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -22,7 +23,7 @@ import { useAuth } from "@/providers/auth-context";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PermissionState = "pending" | "granted" | "denied";
-type BubbleKind = "place" | "user" | "self";
+type BubbleKind = "place" | "user" | "self" | "space";
 
 type NearbyUser = {
   id: string;
@@ -40,6 +41,22 @@ type NearbyPlace = {
   activeUsers: number;
   photoUri?: string;
   subtitle?: string;
+};
+
+type Space = {
+  space_id: string;
+  name: string;
+  description: string;
+  photo_base64: string;
+  owner_user_id: string;
+  lat: number;
+  lng: number;
+  radius_km: number;
+  members: string[];
+  chat_conversation_id?: string | null;
+  created_at: string;
+  expires_at?: string | null;
+  distance_km?: number;
 };
 
 type BubbleDescriptor = {
@@ -71,6 +88,7 @@ type BubbleModel = BubbleDescriptor & {
 type BroadcastEntry = {
   users?: NearbyUser[];
   places?: NearbyPlace[];
+  spaces?: Space[];
   raw: string;
 };
 
@@ -78,9 +96,11 @@ type BroadcastEntry = {
 
 const AUTO_WS_URL =
   "wss://allora-location-service.agreeabledune-f41f7671.centralus.azurecontainerapps.io/ws";
+const API_BASE_URL = "http://localhost:8000";
 const SEND_INTERVAL_MS = 4000;
 const MAX_VISIBLE_USERS = 8;
 const MAX_VISIBLE_PLACES = 5;
+const MAX_VISIBLE_SPACES = 4;
 
 const C = {
   white: "#ffffff",
@@ -120,7 +140,33 @@ const PLACE_THEMES = [
   { accent: C.teal, tint: C.tealTint, border: C.tealBorder },
 ];
 
+const SPACE_THEMES = [
+  { accent: "#FF6B9D", tint: "#FFE8F0", border: "#FFC5D9" },
+  { accent: "#FF6B9D", tint: "#FFE8F0", border: "#FFC5D9" },
+  { accent: "#FF6B9D", tint: "#FFE8F0", border: "#FFC5D9" },
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Almacenamiento global de clientId durante la sesión actual
+let globalClientId: string | null = null;
+
+function getOrCreateClientId(userId?: string): string {
+  // Si tiene userId autenticado, usarlo
+  if (userId) {
+    globalClientId = userId;
+    return userId;
+  }
+  
+  // Si ya existe un clientId en memoria, reutilizarlo
+  if (globalClientId) {
+    return globalClientId;
+  }
+  
+  // Crear uno nuevo y guardarlo en memoria
+  globalClientId = `mobile-${Math.floor(Math.random() * 9000) + 1000}`;
+  return globalClientId;
+}
 
 function clamp(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
@@ -219,11 +265,40 @@ function normalizePlaces(input: unknown): NearbyPlace[] {
   return result.slice(0, MAX_VISIBLE_PLACES);
 }
 
+function normalizeSpaces(input: unknown): Space[] {
+  if (!Array.isArray(input)) return [];
+  const result: Space[] = [];
+  input.forEach((item, i) => {
+    if (!item || typeof item !== "object") return;
+    const r = item as Record<string, unknown>;
+    const name = String(r.name ?? r.title ?? "").trim() || `Group ${i + 1}`;
+    const spaceId = String(r.space_id ?? r.id ?? name);
+    const members = Array.isArray(r.members) ? r.members : [];
+    result.push({
+      space_id: spaceId,
+      name,
+      description: typeof r.description ?? r.desc ?? "" === "string" ? String(r.description ?? "") : "",
+      photo_base64: typeof r.photo_base64 === "string" ? r.photo_base64 : "",
+      owner_user_id: String(r.owner_user_id ?? r.owner_id ?? ""),
+      lat: Number(r.lat ?? r.latitude ?? 0),
+      lng: Number(r.lng ?? r.longitude ?? 0),
+      radius_km: Number(r.radius_km ?? r.radius ?? 1),
+      members: members as string[],
+      chat_conversation_id: typeof r.chat_conversation_id === "string" ? r.chat_conversation_id : null,
+      created_at: typeof r.created_at === "string" ? r.created_at : new Date().toISOString(),
+      expires_at: typeof r.expires_at === "string" ? r.expires_at : null,
+      distance_km: typeof r.distance_km === "number" ? r.distance_km : undefined,
+    });
+  });
+  return result.slice(0, MAX_VISIBLE_SPACES);
+}
+
 // ─── Bubble descriptors ───────────────────────────────────────────────────────
 
 function buildBubbleDescriptors(
   users: NearbyUser[],
   places: NearbyPlace[],
+  spaces: Space[],
   width: number,
   height: number,
   selectedId: string | null,
@@ -294,6 +369,35 @@ function buildBubbleDescriptors(
     } satisfies BubbleDescriptor;
   });
 
+  const spaceDescriptors = spaces.map((space, i) => {
+    const angle = -0.5 + i * 0.8;
+    const rx = sw * 0.28 + i * 8;
+    const ry = sh * 0.22 + i * 7;
+    const seed = hashText(space.space_id);
+    const theme = SPACE_THEMES[i % SPACE_THEMES.length];
+    const memberCount = space.members.length;
+    return {
+      id: `space-${space.space_id}`,
+      kind: "space" as const,
+      title: space.name,
+      subtitle: `${memberCount} ${memberCount === 1 ? "miembro" : "miembros"}`,
+      photoUri: space.photo_base64 || undefined,
+      size: clamp(110 - i * 5, 85, 120),
+      x: clamp(
+        cx + Math.cos(angle) * rx + seededOffset(seed, 22) - 55,
+        12, sw - 135,
+      ),
+      y: clamp(
+        cy + Math.sin(angle) * ry + seededOffset(seed + 1, 20) - 55,
+        64, sh - 160,
+      ),
+      accent: theme.accent,
+      tint: theme.tint,
+      border: theme.border,
+      isActive: true,
+    } satisfies BubbleDescriptor;
+  });
+
   const selfDescriptor: BubbleDescriptor = {
     id: "self-location",
     kind: "self",
@@ -310,7 +414,7 @@ function buildBubbleDescriptors(
     isActive: true,
   };
 
-  return [...placeDescriptors, selfDescriptor, ...userDescriptors];
+  return [...spaceDescriptors, ...placeDescriptors, selfDescriptor, ...userDescriptors];
 }
 
 // ─── Bubble model ─────────────────────────────────────────────────────────────
@@ -561,6 +665,7 @@ function BubbleItem({
         >
           {bubble.kind === "user"  ? <UserBubble  bubble={bubble} /> :
            bubble.kind === "place" ? <PlaceBubble bubble={bubble} /> :
+           bubble.kind === "space" ? <SpaceBubble bubble={bubble} /> :
            <SelfBubble bubble={bubble} />}
         </Animated.View>
       </Pressable>
@@ -687,6 +792,30 @@ function PlaceBubble({ bubble }: { bubble: BubbleModel }) {
   );
 }
 
+// ─── Space bubble ─────────────────────────────────────────────────────────────
+
+function SpaceBubble({ bubble }: { bubble: BubbleModel }) {
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      {bubble.photoUri && (
+        <Image
+          source={{ uri: bubble.photoUri }}
+          style={[StyleSheet.absoluteFillObject, { borderRadius: bubble.size / 2, opacity: 0.22 }]}
+          contentFit="cover"
+        />
+      )}
+      <View style={styles.spaceInner}>
+        <Text numberOfLines={1} style={[styles.spaceName, { color: bubble.accent }]}>
+          {bubble.title}
+        </Text>
+        <Text numberOfLines={1} style={[styles.spaceCount, { color: bubble.accent }]}>
+          👥 {bubble.subtitle}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 // ─── Self bubble ──────────────────────────────────────────────────────────────
 
 function SelfBubble({ bubble }: { bubble: BubbleModel }) {
@@ -706,6 +835,91 @@ function SelfBubble({ bubble }: { bubble: BubbleModel }) {
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
+// ─── Create Group Modal ────────────────────────────────────────────────────────
+
+function CreateGroupModal({
+  isOpen,
+  onClose,
+  onCreate,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onCreate: (name: string, description: string) => void;
+  isLoading: boolean;
+}) {
+  const [groupName, setGroupName] = useState("");
+  const [groupDesc, setGroupDesc] = useState("");
+
+  const handleCreate = () => {
+    if (groupName.trim()) {
+      onCreate(groupName, groupDesc);
+      setGroupName("");
+      setGroupDesc("");
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <View style={styles.modalOverlay}>
+      <View style={styles.modalContent}>
+        <Text style={styles.modalTitle}>Crear un grupo</Text>
+        
+        <TextInput
+          style={styles.modalInput}
+          placeholder="Nombre del grupo"
+          placeholderTextColor="rgba(26,26,46,0.4)"
+          value={groupName}
+          onChangeText={setGroupName}
+          editable={!isLoading}
+          maxLength={50}
+        />
+        
+        <TextInput
+          style={[styles.modalInput, { minHeight: 80, textAlignVertical: "top" }]}
+          placeholder="Descripción (opcional)"
+          placeholderTextColor="rgba(26,26,46,0.4)"
+          value={groupDesc}
+          onChangeText={setGroupDesc}
+          editable={!isLoading}
+          multiline
+          maxLength={200}
+        />
+
+        <View style={styles.modalButtonRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.modalButton,
+              styles.cancelButton,
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={onClose}
+            disabled={isLoading}
+          >
+            <Text style={styles.modalButtonText}>Cancelar</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.modalButton,
+              styles.confirmButton,
+              (pressed || !groupName.trim() || isLoading) && { opacity: 0.7 },
+            ]}
+            onPress={handleCreate}
+            disabled={isLoading || !groupName.trim()}
+          >
+            <Text style={[styles.modalButtonText, styles.confirmButtonText]}>
+              {isLoading ? "Creando…" : "Crear"}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function LocationScreen() {
   const { width, height } = useWindowDimensions();
   const { user } = useAuth();
@@ -722,6 +936,9 @@ export default function LocationScreen() {
   const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>("self-location");
   const [connectivityNote, setConnectivityNote] = useState("Solicitando permiso…");
   const [matchCount, setMatchCount] = useState(0);
+  const [nearbySpaces, setNearbySpaces] = useState<Space[]>([]);
+  const [isCreatingSpace, setIsCreatingSpace] = useState(false);
+  const [isJoiningSpace, setIsJoiningSpace] = useState<string | null>(null);
 
   // ─── Pan / drag del stage ──────────────────────────────────────────────────
   const panOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -766,9 +983,22 @@ export default function LocationScreen() {
   const wsServiceRef = useRef<LocationWebSocketService | null>(null);
   const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const coordsRef = useRef<{ lat: number; lng: number } | null>(null);
-  const clientIdRef = useRef(user?.id ?? `mobile-${Math.floor(Math.random() * 9000) + 1000}`);
+  const clientIdRef = useRef<string | null>(null);
 
-  useEffect(() => { if (user?.id) clientIdRef.current = user.id; }, [user?.id]);
+  useEffect(() => {
+    // Inicializar el clientId una sola vez al montar el componente
+    if (!clientIdRef.current) {
+      clientIdRef.current = getOrCreateClientId(user?.id);
+      setConnectivityNote("Sesión iniciada");
+    }
+  }, []);
+
+  // Actualizar clientId si el usuario cambia (ej: login)
+  useEffect(() => {
+    if (user?.id) {
+      clientIdRef.current = user.id;
+    }
+  }, [user?.id]);
 
   const stopLocationWatcher = useCallback(() => {
     locationWatcherRef.current?.remove();
@@ -785,13 +1015,16 @@ export default function LocationScreen() {
       const r = data as Record<string, unknown>;
       const us = r.nearby_users ?? r.users ?? r.connected_users ?? r.room_users;
       const ps = r.nearby_places ?? r.places ?? r.spots ?? r.locations;
+      const ss = r.spaces ?? r.nearby_spaces ?? r.groups;
       entry.users = normalizeUsers(us);
       entry.places = normalizePlaces(ps);
+      entry.spaces = normalizeSpaces(ss);
       if (typeof r.message === "string") entry.raw = r.message;
       else if (typeof r.text === "string") entry.raw = r.text;
     }
     if (entry.users)  setNearbyUsers(entry.users);
     if (entry.places) setNearbyPlaces(entry.places);
+    if (entry.spaces) setNearbySpaces(entry.spaces);
     setLatestBroadcast(entry.raw);
   }, []);
 
@@ -810,14 +1043,99 @@ export default function LocationScreen() {
     return wsServiceRef.current;
   }, [processBroadcast]);
 
+  const fetchNearbySpaces = useCallback(async (lat: number, lng: number) => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/location/spaces/nearby?lat=${lat}&lng=${lng}&radius_km=5`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const spaces = normalizeSpaces(data.spaces);
+        setNearbySpaces(spaces);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch nearby spaces", err);
+    }
+  }, []);
+
+  const createSpace = useCallback(
+    async (name: string, description: string, photoBase64?: string) => {
+      if (!currentCoords || !user?.id) return;
+      setIsCreatingSpace(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/location/spaces`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: user.id,
+            name,
+            description,
+            photo_base64: photoBase64 || "",
+            lat: currentCoords.lat,
+            lng: currentCoords.lng,
+            radius_km: 2,
+          }),
+        });
+        if (response.ok) {
+          const newSpace = await response.json();
+          setNearbySpaces([normalizeSpaces([newSpace])[0], ...nearbySpaces]);
+          setConnectivityNote("Grupo creado 🎉");
+        }
+      } catch (err) {
+        console.warn("Failed to create space", err);
+        setErrorMessage("Error al crear grupo");
+      } finally {
+        setIsCreatingSpace(false);
+      }
+    },
+    [currentCoords, user?.id, nearbySpaces]
+  );
+
+  const joinSpace = useCallback(
+    async (spaceId: string) => {
+      if (!currentCoords || !user?.id) return;
+      setIsJoiningSpace(spaceId);
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/location/spaces/${spaceId}/join`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: user.id,
+              lat: currentCoords.lat,
+              lng: currentCoords.lng,
+            }),
+          }
+        );
+        if (response.ok) {
+          const updatedSpace = await response.json();
+          setNearbySpaces(
+            nearbySpaces.map((s) =>
+              s.space_id === spaceId ? normalizeSpaces([updatedSpace])[0] : s
+            )
+          );
+          setConnectivityNote(`Entraste a ${updatedSpace.name} ✨`);
+        }
+      } catch (err) {
+        console.warn("Failed to join space", err);
+        setErrorMessage("Error al unirse al grupo");
+      } finally {
+        setIsJoiningSpace(null);
+      }
+    },
+    [currentCoords, user?.id, nearbySpaces]
+  );
+
   const sendCurrentLocation = useCallback(() => {
     const service = wsServiceRef.current;
     const coords = coordsRef.current;
-    if (!service || !coords) return;
+    const clientId = clientIdRef.current;
+    if (!service || !coords || !clientId) return;
     service.sendLocation({
       lat: coords.lat, lng: coords.lng,
       timestamp: new Date().toISOString(),
-      clientId: clientIdRef.current,
+      clientId: clientId,
     });
   }, []);
 
@@ -863,10 +1181,12 @@ export default function LocationScreen() {
 
   useEffect(() => {
     if (permissionState !== "granted") { wsServiceRef.current?.disconnect(); stopSendLoop(); return; }
+    const clientId = clientIdRef.current;
+    if (!clientId) return; // Esperar a que se cargue el clientId
     const s = ensureSocketService();
-    s.connect(AUTO_WS_URL, user?.id ?? clientIdRef.current);
+    s.connect(AUTO_WS_URL, clientId);
     return () => { s.disconnect(); };
-  }, [ensureSocketService, permissionState, stopSendLoop, user?.id]);
+  }, [ensureSocketService, permissionState, stopSendLoop]);
 
   useEffect(() => {
     if (connectionStatus !== "connected") { stopSendLoop(); return; }
@@ -876,9 +1196,15 @@ export default function LocationScreen() {
     return () => { stopSendLoop(); };
   }, [connectionStatus, sendCurrentLocation, stopSendLoop]);
 
+  useEffect(() => {
+    if (currentCoords) {
+      fetchNearbySpaces(currentCoords.lat, currentCoords.lng);
+    }
+  }, [currentCoords, fetchNearbySpaces]);
+
   const bubbleDescriptors = useMemo(
-    () => buildBubbleDescriptors(nearbyUsers, nearbyPlaces, width, height, selectedBubbleId, currentCoords),
-    [currentCoords, height, nearbyPlaces, nearbyUsers, selectedBubbleId, width],
+    () => buildBubbleDescriptors(nearbyUsers, nearbyPlaces, nearbySpaces, width, height, selectedBubbleId, currentCoords),
+    [currentCoords, height, nearbyPlaces, nearbySpaces, nearbyUsers, selectedBubbleId, width],
   );
 
   const floatingBubbles = useFloatingBubbleModels(bubbleDescriptors);
@@ -927,6 +1253,11 @@ export default function LocationScreen() {
                 if (isDragging.current) return;
                 if (selectedBubbleId === id && bubble.kind === "user") {
                   setMatchCount((n) => n + 1);
+                }
+                if (selectedBubbleId === id && bubble.kind === "space") {
+                  const spaceId = id.replace("space-", "");
+                  joinSpace(spaceId);
+                  return;
                 }
                 setSelectedBubbleId((prev) => (prev === id ? null : id));
               }}
@@ -1033,6 +1364,24 @@ export default function LocationScreen() {
             {isRequestingPermission && (
               <Text style={styles.helperText}>Solicitando permiso GPS…</Text>
             )}
+            <Pressable
+              style={({ pressed }) => [
+                styles.createGroupBtn,
+                pressed && { opacity: 0.75 },
+              ]}
+              onPress={() => setIsCreatingSpace(true)}
+              disabled={isCreatingSpace}
+            >
+              <Text style={styles.createGroupBtnText}>
+                {isCreatingSpace ? "Creando…" : "+ Crear grupo"}
+              </Text>
+            </Pressable>
+            <CreateGroupModal
+              isOpen={isCreatingSpace}
+              onClose={() => setIsCreatingSpace(false)}
+              onCreate={createSpace}
+              isLoading={isCreatingSpace}
+            />
           </View>
         </View>
       </View>
@@ -1178,6 +1527,13 @@ const styles = StyleSheet.create({
   placeName: { fontSize: 11, fontWeight: "800", color: C.ink, textAlign: "center" },
   placeCount: { fontSize: 10, fontWeight: "700", textAlign: "center" },
 
+  // Space bubble
+  spaceInner: {
+    position: "absolute", bottom: 12, left: 8, right: 8, alignItems: "center", gap: 2,
+  },
+  spaceName: { fontSize: 11, fontWeight: "800", textAlign: "center" },
+  spaceCount: { fontSize: 9, fontWeight: "700", textAlign: "center" },
+
   // Self bubble
   selfWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   selfCore: {
@@ -1203,14 +1559,7 @@ const styles = StyleSheet.create({
   tagText: { fontSize: 9, fontWeight: "700", color: C.inkMid, flexShrink: 1 },
 
   // Footer
-  footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-  },
+  footer: { paddingHorizontal: 16, paddingBottom: 28 },
   footerCard: {
     backgroundColor: C.white, borderRadius: 24,
     borderWidth: 0.5, borderColor: C.inkFaint,
@@ -1231,6 +1580,86 @@ const styles = StyleSheet.create({
   coordValue: { fontSize: 12, fontWeight: "700", color: C.rose, letterSpacing: 0.3 },
   errorText: { fontSize: 12, color: C.rose, fontWeight: "600" },
   helperText: { fontSize: 11, color: C.inkMid, fontWeight: "500" },
+  createGroupBtn: {
+    marginTop: 2,
+    alignSelf: "stretch",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 16,
+    backgroundColor: C.rose,
+  },
+  createGroupBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: C.white,
+    letterSpacing: 0.2,
+  },
+
+  // Modal crear grupo
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(8, 10, 20, 0.56)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    zIndex: 100,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 24,
+    backgroundColor: C.white,
+    padding: 20,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: C.ink,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: C.inkFaint,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: C.ink,
+    backgroundColor: C.white,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 2,
+  },
+  modalButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  cancelButton: {
+    backgroundColor: C.inkFaint,
+  },
+  confirmButton: {
+    backgroundColor: C.rose,
+  },
+  modalButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: C.ink,
+  },
+  confirmButtonText: {
+    color: C.white,
+  },
 
   // Recentrar
   recenterWrap: {

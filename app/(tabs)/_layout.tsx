@@ -1,13 +1,17 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { Redirect, Tabs } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { Tabs } from "expo-router";
 import React from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { HapticTab } from "@/components/haptic-tab";
-import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useAuth } from "@/providers/auth-context";
 
-// ─── Custom Tab Bar ──────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type TabBarIconConfig = {
   name: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -16,28 +20,7 @@ type TabBarIconConfig = {
   label: string;
 };
 
-type TabRouteName = 'index' | 'location' | 'my-profile';
-
-const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
-  index: {
-    name: 'home-variant',
-    activeColor: '#ff2d78',
-    inactiveColor: '#999999',
-    label: 'Home',
-  },
-  location: {
-    name: 'radar',
-    activeColor: '#ff2d78',
-    inactiveColor: '#999999',
-    label: 'Radar',
-  },
-  'my-profile': {
-    name: 'account-circle',
-    activeColor: '#ff2d78',
-    inactiveColor: '#999999',
-    label: 'Perfil',
-  },
-};
+// ─── Animated Icon ───────────────────────────────────────────────────────────
 
 function TabBarIcon({
   icon,
@@ -46,128 +29,201 @@ function TabBarIcon({
   icon: TabBarIconConfig;
   focused: boolean;
 }) {
-  const scaleRef = React.useRef(new Animated.Value(focused ? 1 : 0.85)).current;
+  const scaleRef = React.useRef(
+    new Animated.Value(focused ? 1 : 0.9)
+  ).current;
+
   const opacityRef = React.useRef(
-    new Animated.Value(focused ? 1 : 0.6),
+    new Animated.Value(focused ? 1 : 0.7)
+  ).current;
+
+  const translateY = React.useRef(
+    new Animated.Value(focused ? -2 : 0)
   ).current;
 
   React.useEffect(() => {
     Animated.parallel([
       Animated.spring(scaleRef, {
-        toValue: focused ? 1.15 : 0.85,
-        tension: 130,
-        friction: 12,
+        toValue: focused ? 1.18 : 0.92,
+        tension: 120,
+        friction: 10,
         useNativeDriver: true,
       }),
+
       Animated.timing(opacityRef, {
-        toValue: focused ? 1 : 0.6,
-        duration: 200,
+        toValue: focused ? 1 : 0.7,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+
+      Animated.spring(translateY, {
+        toValue: focused ? -4 : 0,
+        tension: 100,
+        friction: 9,
         useNativeDriver: true,
       }),
     ]).start();
-  }, [focused, scaleRef, opacityRef]);
+  }, [focused, opacityRef, scaleRef, translateY]);
 
   return (
     <Animated.View
       style={[
-        styles.tabIconContainer,
+        styles.iconWrapper,
         {
           opacity: opacityRef,
-          transform: [{ scale: scaleRef }],
+          transform: [
+            { scale: scaleRef },
+            { translateY },
+          ],
         },
       ]}
     >
       <MaterialCommunityIcons
         name={icon.name}
         size={28}
-        color={focused ? icon.activeColor : icon.inactiveColor}
+        color={
+          focused
+            ? icon.activeColor
+            : icon.inactiveColor
+        }
       />
     </Animated.View>
   );
 }
 
+// ─── Custom Tab Bar ──────────────────────────────────────────────────────────
+
 function CustomTabBar({
   state,
-  descriptors,
   navigation,
 }: {
   state: any;
   descriptors: any;
   navigation: any;
 }) {
-  useColorScheme();
+  const tabIcons: TabBarIconConfig[] = [
+    {
+      name: "home-variant",
+      activeColor: "#7c3aed",
+      inactiveColor: "#6b7280",
+      label: "Home",
+    },
+    {
+      name: "compass",
+      activeColor: "#06b6d4",
+      inactiveColor: "#6b7280",
+      label: "Explore",
+    },
+    {
+      name: "radar",
+      activeColor: "#10b981",
+      inactiveColor: "#6b7280",
+      label: "Radar",
+    },
+  ];
 
   return (
     <View style={styles.tabBarContainer}>
-      <View style={styles.tabBar}>
-        {state.routes.map((route: any) => {
-          const icon = TAB_CONFIG[route.name as TabRouteName];
+      <LinearGradient
+        colors={[
+          "rgba(233,213,255,0.96)",
+          "rgba(186,230,253,0.96)",
+          "rgba(209,250,229,0.96)",
+        ]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.tabBar}
+      >
+        {state.routes.map(
+          (route: any, index: number) => {
+            if (index >= tabIcons.length) return null;
 
-          if (!icon) {
-            return null;
-          }
+            const isFocused =
+              state.index === index;
 
-          const isFocused = state.routes[state.index]?.name === route.name;
+            const onPress = () => {
+              const event = navigation.emit({
+                type: "tabPress",
+                target: route.key,
+                canPreventDefault: true,
+              });
 
-          const onPress = () => {
-            const event = navigation.emit({
-              type: "tabPress",
-              target: route.key,
-              canPreventDefault: true,
-            });
+              if (
+                !isFocused &&
+                !event.defaultPrevented
+              ) {
+                navigation.navigate(
+                  route.name,
+                  route.params
+                );
+              }
+            };
 
-            if (!isFocused && !event.defaultPrevented) {
-              navigation.navigate(route.name, route.params);
-            }
-          };
-
-          const onLongPress = () => {
-            navigation.emit({
-              type: "tabLongPress",
-              target: route.key,
-            });
-          };
-
-          return (
-            <HapticTab
-              key={route.key}
-              onPress={onPress}
-              onLongPress={onLongPress}
-              style={[styles.tabItem, isFocused && styles.tabItemActive]}
-            >
-              <TabBarIcon icon={icon} focused={isFocused} />
-              <Text
+            return (
+              <HapticTab
+                key={route.key}
+                onPress={onPress}
                 style={[
-                  styles.tabLabel,
-                  {
-                    color: isFocused ? "#ff2d78" : "#999999",
-                    opacity: isFocused ? 1 : 0.6,
-                  },
+                  styles.tabItem,
+                  isFocused &&
+                    styles.tabItemActive,
                 ]}
               >
-                {icon.label}
-              </Text>
-            </HapticTab>
-          );
-        })}
-      </View>
+                {/* Glow */}
+                {isFocused && (
+                  <View
+                    style={[
+                      styles.glow,
+                      {
+                        backgroundColor:
+                          tabIcons[index]
+                            .activeColor,
+                      },
+                    ]}
+                  />
+                )}
+
+                <TabBarIcon
+                  icon={tabIcons[index]}
+                  focused={isFocused}
+                />
+
+                <Text
+                  style={[
+                    styles.tabLabel,
+                    {
+                      color: isFocused
+                        ? tabIcons[index]
+                            .activeColor
+                        : "#6b7280",
+                      opacity: isFocused
+                        ? 1
+                        : 0.75,
+                    },
+                  ]}
+                >
+                  {tabIcons[index].label}
+                </Text>
+              </HapticTab>
+            );
+          }
+        )}
+      </LinearGradient>
     </View>
   );
 }
 
+// ─── Layout ──────────────────────────────────────────────────────────────────
+
 export default function TabLayout() {
-  const { isAuthenticated } = useAuth();
-
-  if (!isAuthenticated) {
-    return <Redirect href="/auth" />;
-  }
-
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
       }}
-      tabBar={(props) => <CustomTabBar {...props} />}
+      tabBar={(props) => (
+        <CustomTabBar {...props} />
+      )}
     >
       <Tabs.Screen
         name="index"
@@ -175,66 +231,114 @@ export default function TabLayout() {
           title: "Home",
         }}
       />
+
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: "Explore",
+        }}
+      />
+
       <Tabs.Screen
         name="location"
         options={{
           title: "Location",
         }}
       />
-      <Tabs.Screen
-        name="my-profile"
-        options={{
-          title: "Mi Perfil",
-        }}
-      />
     </Tabs>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   tabBarContainer: {
-    paddingHorizontal: 12,
-    paddingBottom: 24,
-    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 28,
+    paddingTop: 8,
     backgroundColor: "transparent",
   },
+
   tabBar: {
     flexDirection: "row",
-    justifyContent: "space-around",
     alignItems: "center",
-    height: 72,
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
-    borderRadius: 24,
+    justifyContent: "space-around",
+
+    height: 82,
+
+    borderRadius: 32,
+
     borderWidth: 1,
-    borderColor: "rgba(0, 0, 0, 0.05)",
-    backdropFilter: "blur(20px)",
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    borderColor: "rgba(255,255,255,0.35)",
+
+    overflow: "hidden",
+
+    shadowColor: "#c084fc",
+    shadowOpacity: 0.22,
+    shadowRadius: 24,
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+
+    elevation: 12,
   },
+
   tabItem: {
     flex: 1,
+
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+
+    paddingVertical: 10,
+    marginHorizontal: 6,
+
+    borderRadius: 24,
+
+    overflow: "hidden",
   },
+
   tabItemActive: {
-    backgroundColor: "rgba(255, 45, 120, 0.08)",
+    backgroundColor:
+      "rgba(255,255,255,0.32)",
+
+    shadowColor: "#ffffff",
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
   },
-  tabIconContainer: {
+
+  glow: {
+    position: "absolute",
+
+    width: 72,
+    height: 72,
+
+    borderRadius: 999,
+
+    opacity: 0.12,
+
+    transform: [
+      {
+        scale: 1.3,
+      },
+    ],
+  },
+
+  iconWrapper: {
     alignItems: "center",
     justifyContent: "center",
   },
+
   tabLabel: {
-    fontSize: 10,
+    marginTop: 4,
+
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 0.5,
+
+    letterSpacing: 0.4,
   },
 });

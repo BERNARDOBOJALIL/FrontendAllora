@@ -26,6 +26,7 @@ type ApiRequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   token?: string;
   body?: unknown;
+  baseUrl?: string;
 };
 
 export async function apiRequest<T>(
@@ -44,7 +45,12 @@ export async function apiRequest<T>(
     headers.Authorization = `Bearer ${options.token}`;
   }
 
-  const response = await fetch(buildApiUrl(path), {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const requestUrl = options.baseUrl
+    ? `${options.baseUrl.replace(/\/$/, '')}${cleanPath}`
+    : buildApiUrl(path);
+
+  const response = await fetch(requestUrl, {
     method: options.method ?? 'GET',
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
