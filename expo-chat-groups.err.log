@@ -1,0 +1,5 @@
+The following packages should be updated for best compatibility with the installed expo version:
+  expo-blur@55.0.14 - expected version: ~15.0.8
+  expo-location@55.1.9 - expected version: ~19.0.8
+  react-native-svg@15.2.0 - expected version: 15.12.1
+Your project may not work correctly until you install the expected versions of the packages.

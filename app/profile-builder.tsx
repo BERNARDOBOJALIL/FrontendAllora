@@ -1,4 +1,4 @@
-import { Link, Redirect } from 'expo-router';
+import { Link, Redirect, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -146,13 +146,59 @@ function StarterChip({
   );
 }
 
+function OnboardingGuide({ onDone }: { onDone: () => void }) {
+  return (
+    <View style={styles.guideCard}>
+      <View style={styles.guideTopRow}>
+        <View style={styles.guideBadge}>
+          <Text style={styles.guideBadgeText}>1</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.guideTitle}>Tu perfil empieza aquí</Text>
+          <Text style={styles.guideSubtitle}>
+            Allora te hará preguntas cortas para entender tu vibra, gustos y forma de conectar.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.guideSteps}>
+        <View style={styles.guideStep}>
+          <Text style={styles.guideStepNumber}>01</Text>
+          <Text style={styles.guideStepText}>Responde con frases naturales, como si hablaras con alguien nuevo.</Text>
+        </View>
+        <View style={styles.guideStep}>
+          <Text style={styles.guideStepNumber}>02</Text>
+          <Text style={styles.guideStepText}>El agente irá llenando tu perfil y mostrando etiquetas de lo que aprende.</Text>
+        </View>
+        <View style={styles.guideStep}>
+          <Text style={styles.guideStepNumber}>03</Text>
+          <Text style={styles.guideStepText}>Puedes salir o llenar datos manualmente cuando quieras.</Text>
+        </View>
+      </View>
+
+      <Pressable style={styles.guideButton} onPress={onDone}>
+        <LinearGradient
+          colors={['#f4547a', '#f87a5a']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.guideButtonGradient}
+        >
+          <Text style={styles.guideButtonText}>Empezar conversación</Text>
+        </LinearGradient>
+      </Pressable>
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main screen
 // ---------------------------------------------------------------------------
 
 export default function ProfileBuilderScreen() {
   const { user, isAuthenticated, accessToken } = useAuth();
+  const params = useLocalSearchParams<{ firstRun?: string | string[] }>();
   const scrollRef = useRef<ScrollView>(null);
+  const firstRun = Array.isArray(params.firstRun) ? params.firstRun[0] : params.firstRun;
 
   const [messages, setMessages] = useState<AgentMessage[]>([
     {
@@ -165,6 +211,7 @@ export default function ProfileBuilderScreen() {
   const [isSending, setIsSending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profileSnapshot, setProfileSnapshot] = useState<Partial<ProfileSnapshot> | null>(null);
+  const [showGuide, setShowGuide] = useState(firstRun === '1');
 
   // Derived progress: count non-empty snapshot fields
   const filledFields = useMemo(() => {
@@ -256,15 +303,26 @@ export default function ProfileBuilderScreen() {
               <Text style={styles.topBarName}>Allora</Text>
               <Text style={styles.topBarSub}>Construyendo tu perfil</Text>
             </View>
-            <Link href="/(tabs)/my-profile" style={styles.editLink}>
-              <Text style={styles.editLinkText}>Editar perfil</Text>
-            </Link>
           </View>
           <ProgressBar filled={filledFields} total={PROGRESS_STEPS} />
+          <View style={styles.primaryActions}>
+            <Link href="/(tabs)/my-profile" asChild>
+              <Pressable style={styles.manualAction}>
+                <Text style={styles.manualActionText}>Llenar manualmente</Text>
+              </Pressable>
+            </Link>
+            <Link href="/(tabs)" asChild>
+              <Pressable style={styles.exitAction}>
+                <Text style={styles.exitActionText}>Salir</Text>
+              </Pressable>
+            </Link>
+          </View>
         </View>
 
         {/* ── Tags strip ── */}
         <TagStrip snapshot={profileSnapshot} />
+
+        {showGuide && <OnboardingGuide onDone={() => setShowGuide(false)} />}
 
         {/* ── Chat ── */}
         <ScrollView
@@ -349,7 +407,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 12,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#f0d8de',
   },
@@ -382,6 +440,130 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#f4547a',
+  },
+  primaryActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  manualAction: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#f4547a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    overflow: 'hidden',
+  },
+  manualActionText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  exitAction: {
+    minWidth: 96,
+    minHeight: 48,
+    borderRadius: 16,
+    backgroundColor: '#fff5f7',
+    borderWidth: 1.5,
+    borderColor: '#f5c8d4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+  },
+  exitActionText: {
+    color: '#f4547a',
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  // Guide
+  guideCard: {
+    marginHorizontal: 14,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 16,
+    borderRadius: 22,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#f0d8de',
+    shadowColor: '#f4547a',
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  guideTopRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  guideBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#f4547a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideBadgeText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  guideTitle: {
+    color: '#1a1a1a',
+    fontSize: 18,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  guideSubtitle: {
+    color: '#b08090',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  guideSteps: {
+    gap: 9,
+    marginBottom: 14,
+  },
+  guideStep: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'flex-start',
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: '#fff5f7',
+  },
+  guideStepNumber: {
+    color: '#f4547a',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  guideStepText: {
+    flex: 1,
+    color: '#5b3c45',
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  guideButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  guideButtonGradient: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
   },
 
   // Agent avatar

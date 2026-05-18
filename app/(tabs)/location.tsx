@@ -1,5 +1,6 @@
-import { Image } from "expo-image";
+﻿import { Image } from "expo-image";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -8,6 +9,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -18,6 +20,8 @@ import {
   LocationWebSocketService,
   SocketStatus,
 } from "@/services/location-websocket";
+import { getNearbySpaces, createSpace, joinSpace, leaveSpace, type Space } from "@/services/groups";
+import { useAuth } from "@/providers/auth-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,6 +44,8 @@ type NearbyPlace = {
   activeUsers: number;
   photoUri?: string;
   subtitle?: string;
+  isGroup?: boolean;
+  spaceId?: string;
 };
 
 type BubbleDescriptor = {
@@ -708,7 +714,8 @@ function SelfBubble({ bubble }: { bubble: BubbleModel }) {
 
 export default function LocationScreen() {
   const { width, height } = useWindowDimensions();
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
+  const router = useRouter();
 
   const [permissionState, setPermissionState] = useState<PermissionState>("pending");
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
@@ -718,10 +725,15 @@ export default function LocationScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
+  const [nearbySpaces, setNearbySpaces] = useState<Space[]>([]);
   const [latestBroadcast, setLatestBroadcast] = useState("Esperando señales cercanas…");
   const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>("self-location");
   const [connectivityNote, setConnectivityNote] = useState("Solicitando permiso…");
   const [matchCount, setMatchCount] = useState(0);
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [isLoadingSpaces, setIsLoadingSpaces] = useState(false);
+  const [userSpaces, setUserSpaces] = useState<string[]>([]);
+  const [selectedSpace, setSelectedSpace] = useState<Space | null>(null);
 
   // ─── Pan / drag del stage ──────────────────────────────────────────────────
   const panOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -767,8 +779,146 @@ export default function LocationScreen() {
   const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const coordsRef = useRef<{ lat: number; lng: number } | null>(null);
   const clientIdRef = useRef(user?.id ?? `mobile-${Math.floor(Math.random() * 9000) + 1000}`);
+  const lastNearbySpacesFetchRef = useRef(0);
 
   useEffect(() => { if (user?.id) clientIdRef.current = user.id; }, [user?.id]);
+
+  const fetchNearbySpaces = useCallback(async (options: { force?: boolean } = {}) => {
+    const coords = coordsRef.current;
+    if (!coords) return;
+
+    const now = Date.now();
+    if (!options.force && now - lastNearbySpacesFetchRef.current < 15000) {
+      return;
+    }
+
+    lastNearbySpacesFetchRef.current = now;
+    setIsLoadingSpaces(true);
+    try {
+      const result = await getNearbySpaces(
+        coords.lat,
+        coords.lng,
+        5,
+        accessToken ?? undefined,
+        user?.id,
+      );
+      setNearbySpaces(result.spaces || []);
+    } catch (err) {
+      console.warn('Error fetching nearby spaces:', err);
+    } finally {
+      setIsLoadingSpaces(false);
+    }
+  }, [accessToken, user?.id]);
+
+  const handleCreateSpace = useCallback(
+    async (name: string, description: string, photoBase64: string, radiusKm: number) => {
+      const coords = coordsRef.current;
+      if (!coords || !user?.id || !accessToken) return;
+      try {
+        const newSpace = await createSpace(
+          {
+            user_id: user.id,
+            name,
+            description,
+            photo_base64: photoBase64,
+            lat: coords.lat,
+            lng: coords.lng,
+            radius_km: radiusKm,
+          },
+          accessToken,
+          user.id,
+        );
+        setNearbySpaces((prev) => [...prev, newSpace]);
+        setUserSpaces((prev) => [...prev, newSpace.space_id]);
+        setShowCreateGroupModal(false);
+      } catch (err) {
+        console.error('Error creating space:', err);
+        setErrorMessage(err instanceof Error ? err.message : 'Error creando grupo');
+      }
+    },
+    [accessToken, user?.id],
+  );
+
+  const handleJoinSpace = useCallback(
+    async (spaceId: string) => {
+      const coords = coordsRef.current;
+      if (!coords || !user?.id || !accessToken) return;
+      try {
+        const updatedSpace = await joinSpace(
+          spaceId,
+          { user_id: user.id, lat: coords.lat, lng: coords.lng },
+          accessToken,
+          user.id,
+        );
+        setUserSpaces((prev) => (prev.includes(spaceId) ? prev : [...prev, spaceId]));
+        setNearbySpaces((prev) =>
+          prev.map((space) => (space.space_id === spaceId ? updatedSpace : space)),
+        );
+        setSelectedSpace((current) =>
+          current?.space_id === spaceId ? updatedSpace : current,
+        );
+        await fetchNearbySpaces({ force: true });
+      } catch (err) {
+        console.error('Error joining space:', err);
+        setErrorMessage(err instanceof Error ? err.message : 'Error uniéndose al grupo');
+      }
+    },
+    [accessToken, fetchNearbySpaces, user?.id],
+  );
+
+  const handleLeaveSpace = useCallback(
+    async (spaceId: string) => {
+      if (!user?.id || !accessToken) return;
+      try {
+        await leaveSpace(spaceId, user.id, accessToken);
+        setUserSpaces((prev) => prev.filter((id) => id !== spaceId));
+        setNearbySpaces((prev) =>
+          prev.map((space) =>
+            space.space_id === spaceId
+              ? {
+                  ...space,
+                  members: space.members?.filter((memberId) => memberId !== user.id) ?? [],
+                }
+              : space,
+          ),
+        );
+        setSelectedSpace((current) =>
+          current?.space_id === spaceId
+            ? {
+                ...current,
+                members: current.members?.filter((memberId) => memberId !== user.id) ?? [],
+              }
+            : current,
+        );
+        await fetchNearbySpaces({ force: true });
+      } catch (err) {
+        console.error('Error leaving space:', err);
+        setErrorMessage(err instanceof Error ? err.message : 'Error saliendo del grupo');
+      }
+    },
+    [accessToken, fetchNearbySpaces, user?.id],
+  );
+
+  const handleOpenGroupChat = useCallback(
+    (space: Space) => {
+      if (!space.chat_conversation_id) {
+        setErrorMessage("Este grupo todavía no tiene un chat disponible.");
+        return;
+      }
+
+      setSelectedSpace(null);
+      router.push({
+        pathname: "/(tabs)/chat",
+        params: {
+          groupConversationId: space.chat_conversation_id,
+          groupName: space.name,
+          spaceId: space.space_id,
+          groupMembers: JSON.stringify(space.members ?? []),
+        },
+      });
+    },
+    [router],
+  );
 
   const stopLocationWatcher = useCallback(() => {
     locationWatcherRef.current?.remove();
@@ -862,6 +1012,12 @@ export default function LocationScreen() {
   }, [requestPermissionAndTrack, stopLocationWatcher, stopSendLoop]);
 
   useEffect(() => {
+    if (currentCoords && user?.id) {
+      fetchNearbySpaces();
+    }
+  }, [currentCoords, user?.id, fetchNearbySpaces]);
+
+  useEffect(() => {
     if (permissionState !== "granted") { wsServiceRef.current?.disconnect(); stopSendLoop(); return; }
     const s = ensureSocketService();
     s.connect(AUTO_WS_URL, user?.id ?? clientIdRef.current);
@@ -877,8 +1033,21 @@ export default function LocationScreen() {
   }, [connectionStatus, sendCurrentLocation, stopSendLoop]);
 
   const bubbleDescriptors = useMemo(
-    () => buildBubbleDescriptors(nearbyUsers, nearbyPlaces, width, height, selectedBubbleId, currentCoords),
-    [currentCoords, height, nearbyPlaces, nearbyUsers, selectedBubbleId, width],
+    () => {
+      // Convertir espacios en places para mostrarlos en el radar
+      const groupPlaces: NearbyPlace[] = nearbySpaces.map((space) => ({
+        id: space.space_id,
+        name: space.name,
+        activeUsers: space.members?.length ?? 0,
+        photoUri: space.photo_base64 ? space.photo_base64 : undefined,
+        subtitle: `${space.members?.length ?? 0} miembros`,
+        isGroup: true,
+        spaceId: space.space_id,
+      }));
+      const allPlaces = [...nearbyPlaces, ...groupPlaces];
+      return buildBubbleDescriptors(nearbyUsers, allPlaces, width, height, selectedBubbleId, currentCoords);
+    },
+    [currentCoords, height, nearbyPlaces, nearbyUsers, selectedBubbleId, width, nearbySpaces],
   );
 
   const floatingBubbles = useFloatingBubbleModels(bubbleDescriptors);
@@ -927,6 +1096,16 @@ export default function LocationScreen() {
                 if (isDragging.current) return;
                 if (selectedBubbleId === id && bubble.kind === "user") {
                   setMatchCount((n) => n + 1);
+                }
+                // Si es un grupo, abrir modal
+                if (bubble.kind === "place" && id.startsWith("place-")) {
+                  const groupId = id.replace("place-", "");
+                  const group = nearbySpaces.find((s) => s.space_id === groupId);
+                  if (group) {
+                    setSelectedSpace(group);
+                    setSelectedBubbleId(null);
+                    return;
+                  }
                 }
                 setSelectedBubbleId((prev) => (prev === id ? null : id));
               }}
@@ -1027,6 +1206,21 @@ export default function LocationScreen() {
                   : "esperando GPS…"}
               </Text>
             </View>
+            <View style={styles.sep} />
+            <View style={styles.groupsRow} pointerEvents="auto">
+              <View style={{ flex: 1 }}>
+                <Text style={styles.coordLabel}>Grupos cercanos</Text>
+                <Text style={styles.coordValue}>
+                  {isLoadingSpaces ? "Actualizando..." : nearbySpaces.length}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.createGroupBtn}
+                onPress={() => setShowCreateGroupModal(true)}
+              >
+                <Text style={styles.createGroupBtnText}>Crear grupo</Text>
+              </Pressable>
+            </View>
             {(locationError || errorMessage) && (
               <Text style={styles.errorText}>{locationError ?? errorMessage}</Text>
             )}
@@ -1036,7 +1230,242 @@ export default function LocationScreen() {
           </View>
         </View>
       </View>
+
+      {/* Modal para crear grupo */}
+      {showCreateGroupModal && (
+        <CreateGroupModal
+          onClose={() => setShowCreateGroupModal(false)}
+          onCreate={handleCreateSpace}
+        />
+      )}
+
+      {/* Modal para unirse/salir de grupo */}
+      {selectedSpace && (
+        <SpaceDetailModal
+          space={selectedSpace}
+          isMember={userSpaces.includes(selectedSpace.space_id)}
+          onClose={() => setSelectedSpace(null)}
+          onJoin={() => handleJoinSpace(selectedSpace.space_id)}
+          onLeave={() => handleLeaveSpace(selectedSpace.space_id)}
+          onOpenChat={() => handleOpenGroupChat(selectedSpace)}
+        />
+      )}
     </View>
+  );
+}
+
+// ─── Create Group Modal ────────────────────────────────────────────────────────
+
+function CreateGroupModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (name: string, description: string, photo: string, radius: number) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [radiusKm, setRadiusKm] = useState("2");
+  const [isCreating, setIsCreating] = useState(false);
+
+  const handleCreate = async () => {
+    if (!name.trim()) {
+      alert("El nombre del grupo es requerido");
+      return;
+    }
+    setIsCreating(true);
+    try {
+      // Foto placeholder en base64 (1x1 pixel rojo)
+      const placeholderPhoto = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHoAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+      await onCreate(name, description, placeholderPhoto, parseFloat(radiusKm) || 2);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return (
+    <Pressable
+      style={StyleSheet.absoluteFill}
+      onPress={onClose}
+      pointerEvents="box-none"
+    >
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: "rgba(0,0,0,0.5)" },
+        ]}
+        pointerEvents="none"
+      />
+      <Pressable
+        style={styles.modalContent}
+        onPress={(e) => e.stopPropagation()}
+        pointerEvents="auto"
+      >
+        <Text style={styles.modalTitle}>Crear Grupo</Text>
+        <TextInput
+          style={styles.modalInput}
+          placeholder="Nombre del grupo"
+          value={name}
+          onChangeText={setName}
+          placeholderTextColor={C.inkLight}
+        />
+        <TextInput
+          style={[styles.modalInput, { height: 80 }]}
+          placeholder="Descripción"
+          value={description}
+          onChangeText={setDescription}
+          multiline
+          placeholderTextColor={C.inkLight}
+        />
+        <TextInput
+          style={styles.modalInput}
+          placeholder="Radio (km)"
+          value={radiusKm}
+          onChangeText={setRadiusKm}
+          keyboardType="decimal-pad"
+          placeholderTextColor={C.inkLight}
+        />
+        <View style={styles.modalButtonRow}>
+          <Pressable
+            style={[styles.modalButton, { backgroundColor: C.inkFaint }]}
+            onPress={onClose}
+            disabled={isCreating}
+          >
+            <Text style={[styles.modalButtonText, { color: C.ink }]}>Cancelar</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.modalButton, { backgroundColor: C.rose }]}
+            onPress={handleCreate}
+            disabled={isCreating}
+          >
+            <Text style={[styles.modalButtonText, { color: C.white }]}>
+              {isCreating ? "Creando..." : "Crear"}
+            </Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Pressable>
+  );
+}
+
+// ─── Space Detail Modal ────────────────────────────────────────────────────────
+
+function SpaceDetailModal({
+  space,
+  isMember,
+  onClose,
+  onJoin,
+  onLeave,
+  onOpenChat,
+}: {
+  space: Space;
+  isMember: boolean;
+  onClose: () => void;
+  onJoin: () => void;
+  onLeave: () => void;
+  onOpenChat: () => void;
+}) {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleJoin = async () => {
+    setIsLoading(true);
+    try {
+      await onJoin();
+      onClose();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleLeave = async () => {
+    setIsLoading(true);
+    try {
+      await onLeave();
+      onClose();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Pressable
+      style={StyleSheet.absoluteFill}
+      onPress={onClose}
+      pointerEvents="box-none"
+    >
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: "rgba(0,0,0,0.5)" },
+        ]}
+        pointerEvents="none"
+      />
+      <Pressable
+        style={styles.modalContent}
+        onPress={(e) => e.stopPropagation()}
+        pointerEvents="auto"
+      >
+        <Text style={styles.modalTitle}>{space.name}</Text>
+        {space.photo_base64 && (
+          <Image
+            source={{ uri: space.photo_base64 }}
+            style={{ height: 120, borderRadius: 12, marginVertical: 8 }}
+            contentFit="cover"
+          />
+        )}
+        <Text style={styles.modalDescription}>{space.description}</Text>
+        <View style={styles.spaceInfoRow}>
+          <Text style={styles.spaceInfoLabel}>Miembros:</Text>
+          <Text style={styles.spaceInfoValue}>{space.members?.length ?? 0}</Text>
+        </View>
+        <View style={styles.spaceInfoRow}>
+          <Text style={styles.spaceInfoLabel}>Radio:</Text>
+          <Text style={styles.spaceInfoValue}>{space.radius_km} km</Text>
+        </View>
+        <Pressable
+          style={[
+            styles.modalButton,
+            styles.modalButtonFull,
+            {
+              backgroundColor:
+                isMember && space.chat_conversation_id ? C.lav : C.inkFaint,
+            },
+          ]}
+          onPress={onOpenChat}
+          disabled={isLoading || !isMember || !space.chat_conversation_id}
+        >
+          <Text
+            style={[
+              styles.modalButtonText,
+              { color: isMember && space.chat_conversation_id ? C.white : C.inkMid },
+            ]}
+          >
+            {isMember ? "Abrir chat del grupo" : "Únete para abrir el chat"}
+          </Text>
+        </Pressable>
+        <View style={styles.modalButtonRow}>
+          <Pressable
+            style={[styles.modalButton, { backgroundColor: C.inkFaint }]}
+            onPress={onClose}
+            disabled={isLoading}
+          >
+            <Text style={[styles.modalButtonText, { color: C.ink }]}>Cerrar</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.modalButton,
+              { backgroundColor: isMember ? C.gold : C.rose },
+            ]}
+            onPress={isMember ? handleLeave : handleJoin}
+            disabled={isLoading}
+          >
+            <Text style={[styles.modalButtonText, { color: C.white }]}>
+              {isLoading ? "Procesando..." : isMember ? "Salir del grupo" : "Unirse"}
+            </Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Pressable>
   );
 }
 
@@ -1169,7 +1598,7 @@ const styles = StyleSheet.create({
   },
   statIconDot: { width: 8, height: 8, borderRadius: 4 },
   onlineDot: { width: 7, height: 7, borderRadius: 4 },
-  userStatusRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+  userStatusRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   userStatus: { fontSize: 9, fontWeight: "600", textAlign: "center" },
 
   // Place bubble
@@ -1254,5 +1683,101 @@ const styles = StyleSheet.create({
   },
   recenterText: {
     fontSize: 12, fontWeight: "700", color: C.ink,
+  },
+
+  // Groups section
+  groupsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  createGroupBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: C.rose,
+  },
+  createGroupBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: C.white,
+  },
+
+  // Modal styles
+  modalContent: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    top: "50%",
+    marginTop: -150,
+    backgroundColor: C.white,
+    borderRadius: 20,
+    padding: 20,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: C.ink,
+    marginBottom: 8,
+  },
+  modalInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.inkFaint,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: C.ink,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalButtonFull: {
+    flex: 0,
+    marginTop: 8,
+  },
+  modalButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  // Space detail styles
+  modalDescription: {
+    fontSize: 14,
+    color: C.inkMid,
+    marginVertical: 8,
+    lineHeight: 20,
+  },
+  spaceInfoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.inkFaint,
+  },
+  spaceInfoLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: C.inkMid,
+  },
+  spaceInfoValue: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: C.ink,
   },
 });

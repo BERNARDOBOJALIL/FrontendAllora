@@ -31,7 +31,7 @@ export default function AuthScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (isAuthenticated) {
-    return <Redirect href='/profile-builder' />;
+    return <Redirect href={mode === 'register' ? '/profile-builder?firstRun=1' : '/(tabs)'} />;
   }
 
   const submit = async () => {
@@ -50,7 +50,7 @@ export default function AuthScreen() {
           identifier: identifier.trim(),
           password: password.trim(),
         });
-        router.replace('/profile-builder');
+        router.replace('/(tabs)');
         return;
       }
 
@@ -68,7 +68,7 @@ export default function AuthScreen() {
         email: email.trim() || undefined,
         telefono: telefono.trim() || undefined,
       });
-      router.replace('/profile-builder');
+      router.replace('/profile-builder?firstRun=1');
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'No se pudo autenticar.';

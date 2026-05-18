@@ -4,6 +4,10 @@ export type Conversation = {
   id: string;
   participant_ids: string[];
   match_id: string | null;
+  conversation_type?: 'DIRECT' | 'GROUP';
+  name?: string | null;
+  title?: string | null;
+  space_id?: string | null;
   last_message: string | null;
   last_message_at: string | null;
   created_at: string;
@@ -15,7 +19,7 @@ export type Message = {
   id: string;
   conversation_id: string;
   sender_id: string;
-  receiver_id: string;
+  receiver_id?: string | null;
   content: string;
   message_type: 'TEXT';
   status: 'SENT' | 'DELIVERED' | 'READ';
@@ -42,6 +46,12 @@ export type SendMessageBody = {
 
 export async function getConversations(token: string) {
   return apiRequest<Conversation[]>('/chat/conversations', {
+    token,
+  });
+}
+
+export async function getGroupConversations(token: string) {
+  return apiRequest<Conversation[]>('/chat/group-conversations', {
     token,
   });
 }
@@ -81,6 +91,24 @@ export async function getMessages(
   });
 }
 
+export async function getGroupMessages(
+  conversationId: string,
+  params: { limit?: number; skip?: number } = {},
+  token: string,
+) {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.skip !== undefined) query.set('skip', String(params.skip));
+
+  const path = `/chat/group-conversations/${conversationId}/messages${
+    query.toString() ? `?${query.toString()}` : ''
+  }`;
+
+  return apiRequest<Message[]>(path, {
+    token,
+  });
+}
+
 export async function sendMessage(
   conversationId: string,
   content: string,
@@ -92,6 +120,23 @@ export async function sendMessage(
   };
 
   return apiRequest<Message>(`/chat/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export async function sendGroupMessage(
+  conversationId: string,
+  content: string,
+  token: string,
+) {
+  const body: SendMessageBody = {
+    content,
+    message_type: 'TEXT',
+  };
+
+  return apiRequest<Message>(`/chat/group-conversations/${conversationId}/messages`, {
     method: 'POST',
     token,
     body,
