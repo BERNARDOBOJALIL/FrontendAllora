@@ -17,7 +17,8 @@ type TabBarIconConfig = {
   label: string;
 };
 
-type TabRouteName = 'index' | 'chat' | 'location' | 'my-profile';
+// 'explore' added — maps to app/(tabs)/explore.tsx
+type TabRouteName = 'index' | 'chat' | 'location' | 'match-service' | 'my-profile' ;
 
 const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
   index: {
@@ -28,9 +29,15 @@ const TAB_CONFIG: Record<TabRouteName, TabBarIconConfig> = {
   },
   chat: {
     name: 'chat',
-    activeColor: '#ff2d78',
+    activeColor: '#14b8a6',
     inactiveColor: '#999999',
     label: 'Chat',
+  },
+  'match-service': {
+    name: 'heart-multiple',
+    activeColor: '#ff2d78',
+    inactiveColor: '#999999',
+    label: 'Match',
   },
   location: {
     name: 'radar',
@@ -170,30 +177,11 @@ export default function TabLayout() {
       screenOptions={{ headerShown: false }}
       tabBar={(props) => <CustomTabBar {...props} />}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: "Chat",
-        }}
-      />
-      <Tabs.Screen
-        name="location"
-        options={{
-          title: "Location",
-        }}
-      />
-      <Tabs.Screen
-        name="my-profile"
-        options={{
-          title: "Mi Perfil",
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: "Home" }} />
+      <Tabs.Screen name="chat" options={{ title: "Chat" }} />
+      <Tabs.Screen name="match-service" options={{ title: "Match Service" }} />
+      <Tabs.Screen name="location" options={{ title: "Location" }} />
+      <Tabs.Screen name="my-profile" options={{ title: "Mi Perfil" }} />
     </Tabs>
   );
 }

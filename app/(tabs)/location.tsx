@@ -21,7 +21,6 @@ import {
   SocketStatus,
 } from "@/services/location-websocket";
 import { getNearbySpaces, createSpace, joinSpace, leaveSpace, type Space } from "@/services/groups";
-import { useAuth } from "@/providers/auth-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
