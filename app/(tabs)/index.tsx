@@ -33,6 +33,10 @@ export default function HomeScreen() {
       <Link href="/unlock-demo" style={{ marginTop: 20, color: '#ff2d78' }}>
         Probar desbloqueo de foto
       </Link>
+
+      <Link href="/progressive-profile" style={styles.link}>
+        Ver perfil con desbloqueo progresivo
+      </Link>
     </View>
   );
 }
