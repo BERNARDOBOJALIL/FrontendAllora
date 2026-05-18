@@ -15,6 +15,7 @@ import {
 } from "react-native";
 
 
+import { useAuth } from "@/providers/auth-context";
 import {
   LocationWebSocketService,
   SocketStatus,
