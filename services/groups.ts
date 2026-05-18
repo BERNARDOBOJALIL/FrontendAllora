@@ -44,6 +44,7 @@ export type JoinSpacePayload = {
 type RequestOptions = {
   method: 'GET' | 'POST';
   token?: string;
+  userId?: string;
   body?: unknown;
 };
 
@@ -79,8 +80,14 @@ async function requestWithFallback<T>(route: string, options: RequestOptions): P
   for (const baseUrl of baseUrls) {
     for (const prefix of ROUTE_PREFIXES) {
       try {
+        const headers: Record<string, string> = {};
+        if (options.userId) {
+          headers['X-User-Id'] = options.userId;
+        }
+
         return await apiRequest<T>(withPrefix(prefix, route), {
           ...options,
+          headers,
           baseUrl,
         });
       } catch (error) {
@@ -105,6 +112,7 @@ export async function getNearbySpaces(
   lng: number,
   radiusKm: number = 5,
   token?: string,
+  userId?: string,
 ): Promise<NearbySpacesResponse> {
   const params = new URLSearchParams({
     lat: lat.toString(),
@@ -115,6 +123,7 @@ export async function getNearbySpaces(
   return requestWithFallback<NearbySpacesResponse>(`/spaces/nearby?${params}`, {
     method: 'GET',
     token,
+    userId,
   });
 }
 
@@ -125,10 +134,12 @@ export async function getNearbySpaces(
 export async function createSpace(
   payload: CreateSpacePayload,
   token?: string,
+  userId?: string,
 ): Promise<Space> {
   return requestWithFallback<Space>('/spaces', {
     method: 'POST',
     token,
+    userId,
     body: payload,
   });
 }
@@ -141,12 +152,14 @@ export async function joinSpace(
   spaceId: string,
   payload: JoinSpacePayload,
   token?: string,
+  userId?: string,
 ): Promise<Space> {
   return requestWithFallback<Space>(
     `/spaces/${encodeURIComponent(spaceId)}/join`,
     {
       method: 'POST',
       token,
+      userId,
       body: payload,
     },
   );
@@ -166,6 +179,7 @@ export async function leaveSpace(
     {
       method: 'POST',
       token,
+      userId,
       body: { user_id: userId },
     },
   );

@@ -27,7 +27,13 @@ type ApiRequestOptions = {
   token?: string;
   body?: unknown;
   baseUrl?: string;
+  headers?: Record<string, string>;
 };
+
+function normalizeBearerToken(token: string): string {
+  const trimmed = token.trim();
+  return trimmed.replace(/^Bearer\s+/i, '');
+}
 
 export async function apiRequest<T>(
   path: string,
@@ -42,7 +48,11 @@ export async function apiRequest<T>(
   }
 
   if (options.token) {
-    headers.Authorization = `Bearer ${options.token}`;
+    headers.Authorization = `Bearer ${normalizeBearerToken(options.token)}`;
+  }
+
+  if (options.headers) {
+    Object.assign(headers, options.headers);
   }
 
   const cleanPath = path.startsWith('/') ? path : `/${path}`;

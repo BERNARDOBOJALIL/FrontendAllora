@@ -3,6 +3,7 @@ import {
   DefaultTheme,
   ThemeProvider,
 } from "@react-navigation/native";
+import { View } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
@@ -28,7 +29,11 @@ export default function RootLayout() {
 }
 
 function AuthGate() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isHydrated } = useAuth();
+
+  if (!isHydrated) {
+    return <View style={{ flex: 1, backgroundColor: "#fff" }} />;
+  }
 
   if (!isAuthenticated) {
     return (
