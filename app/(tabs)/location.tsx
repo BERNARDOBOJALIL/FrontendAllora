@@ -1,5 +1,6 @@
 ﻿import { Image } from "expo-image";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
@@ -713,6 +714,7 @@ function SelfBubble({ bubble }: { bubble: BubbleModel }) {
 export default function LocationScreen() {
   const { width, height } = useWindowDimensions();
   const { user, accessToken } = useAuth();
+  const router = useRouter();
 
   const [permissionState, setPermissionState] = useState<PermissionState>("pending");
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
@@ -780,12 +782,12 @@ export default function LocationScreen() {
 
   useEffect(() => { if (user?.id) clientIdRef.current = user.id; }, [user?.id]);
 
-  const fetchNearbySpaces = useCallback(async () => {
+  const fetchNearbySpaces = useCallback(async (options: { force?: boolean } = {}) => {
     const coords = coordsRef.current;
     if (!coords) return;
 
     const now = Date.now();
-    if (now - lastNearbySpacesFetchRef.current < 15000) {
+    if (!options.force && now - lastNearbySpacesFetchRef.current < 15000) {
       return;
     }
 
@@ -805,7 +807,7 @@ export default function LocationScreen() {
     } finally {
       setIsLoadingSpaces(false);
     }
-  }, [accessToken]);
+  }, [accessToken, user?.id]);
 
   const handleCreateSpace = useCallback(
     async (name: string, description: string, photoBase64: string, radiusKm: number) => {
@@ -841,14 +843,20 @@ export default function LocationScreen() {
       const coords = coordsRef.current;
       if (!coords || !user?.id || !accessToken) return;
       try {
-        await joinSpace(
+        const updatedSpace = await joinSpace(
           spaceId,
           { user_id: user.id, lat: coords.lat, lng: coords.lng },
           accessToken,
           user.id,
         );
-        setUserSpaces((prev) => [...prev, spaceId]);
-        await fetchNearbySpaces();
+        setUserSpaces((prev) => (prev.includes(spaceId) ? prev : [...prev, spaceId]));
+        setNearbySpaces((prev) =>
+          prev.map((space) => (space.space_id === spaceId ? updatedSpace : space)),
+        );
+        setSelectedSpace((current) =>
+          current?.space_id === spaceId ? updatedSpace : current,
+        );
+        await fetchNearbySpaces({ force: true });
       } catch (err) {
         console.error('Error joining space:', err);
         setErrorMessage(err instanceof Error ? err.message : 'Error uniéndose al grupo');
@@ -863,13 +871,52 @@ export default function LocationScreen() {
       try {
         await leaveSpace(spaceId, user.id, accessToken);
         setUserSpaces((prev) => prev.filter((id) => id !== spaceId));
-        await fetchNearbySpaces();
+        setNearbySpaces((prev) =>
+          prev.map((space) =>
+            space.space_id === spaceId
+              ? {
+                  ...space,
+                  members: space.members?.filter((memberId) => memberId !== user.id) ?? [],
+                }
+              : space,
+          ),
+        );
+        setSelectedSpace((current) =>
+          current?.space_id === spaceId
+            ? {
+                ...current,
+                members: current.members?.filter((memberId) => memberId !== user.id) ?? [],
+              }
+            : current,
+        );
+        await fetchNearbySpaces({ force: true });
       } catch (err) {
         console.error('Error leaving space:', err);
         setErrorMessage(err instanceof Error ? err.message : 'Error saliendo del grupo');
       }
     },
     [accessToken, fetchNearbySpaces, user?.id],
+  );
+
+  const handleOpenGroupChat = useCallback(
+    (space: Space) => {
+      if (!space.chat_conversation_id) {
+        setErrorMessage("Este grupo todavía no tiene un chat disponible.");
+        return;
+      }
+
+      setSelectedSpace(null);
+      router.push({
+        pathname: "/(tabs)/chat",
+        params: {
+          groupConversationId: space.chat_conversation_id,
+          groupName: space.name,
+          spaceId: space.space_id,
+          groupMembers: JSON.stringify(space.members ?? []),
+        },
+      });
+    },
+    [router],
   );
 
   const stopLocationWatcher = useCallback(() => {
@@ -1162,7 +1209,9 @@ export default function LocationScreen() {
             <View style={styles.groupsRow} pointerEvents="auto">
               <View style={{ flex: 1 }}>
                 <Text style={styles.coordLabel}>Grupos cercanos</Text>
-                <Text style={styles.coordValue}>{nearbySpaces.length}</Text>
+                <Text style={styles.coordValue}>
+                  {isLoadingSpaces ? "Actualizando..." : nearbySpaces.length}
+                </Text>
               </View>
               <Pressable
                 style={styles.createGroupBtn}
@@ -1197,6 +1246,7 @@ export default function LocationScreen() {
           onClose={() => setSelectedSpace(null)}
           onJoin={() => handleJoinSpace(selectedSpace.space_id)}
           onLeave={() => handleLeaveSpace(selectedSpace.space_id)}
+          onOpenChat={() => handleOpenGroupChat(selectedSpace)}
         />
       )}
     </View>
@@ -1305,12 +1355,14 @@ function SpaceDetailModal({
   onClose,
   onJoin,
   onLeave,
+  onOpenChat,
 }: {
   space: Space;
   isMember: boolean;
   onClose: () => void;
   onJoin: () => void;
   onLeave: () => void;
+  onOpenChat: () => void;
 }) {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -1369,6 +1421,27 @@ function SpaceDetailModal({
           <Text style={styles.spaceInfoLabel}>Radio:</Text>
           <Text style={styles.spaceInfoValue}>{space.radius_km} km</Text>
         </View>
+        <Pressable
+          style={[
+            styles.modalButton,
+            styles.modalButtonFull,
+            {
+              backgroundColor:
+                isMember && space.chat_conversation_id ? C.lav : C.inkFaint,
+            },
+          ]}
+          onPress={onOpenChat}
+          disabled={isLoading || !isMember || !space.chat_conversation_id}
+        >
+          <Text
+            style={[
+              styles.modalButtonText,
+              { color: isMember && space.chat_conversation_id ? C.white : C.inkMid },
+            ]}
+          >
+            {isMember ? "Abrir chat del grupo" : "Únete para abrir el chat"}
+          </Text>
+        </Pressable>
         <View style={styles.modalButtonRow}>
           <Pressable
             style={[styles.modalButton, { backgroundColor: C.inkFaint }]}
@@ -1672,6 +1745,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: "center",
+  },
+  modalButtonFull: {
+    flex: 0,
+    marginTop: 8,
   },
   modalButtonText: {
     fontSize: 14,

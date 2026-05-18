@@ -1,4 +1,5 @@
 import { Link, useFocusEffect } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -54,6 +55,7 @@ const FIELDS: FieldConfig[] = [
 ];
 
 const SECTIONS = ['Sobre ti', 'Gustos', 'Personalidad'];
+const PROFILE_DRAFT_KEY_PREFIX = 'allora-profile-memory-draft';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,6 +70,108 @@ function isEmpty(raw: unknown): boolean {
   if (!raw) return true;
   if (Array.isArray(raw)) return raw.length === 0;
   return (raw as string).trim() === '';
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function asStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return items.length > 0 ? items : [];
+}
+
+function normalizeProfileSnapshot(input: unknown): Partial<ProfileSnapshot> {
+  const record =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : {};
+  const contextMemory =
+    record.context_memory && typeof record.context_memory === 'object' && !Array.isArray(record.context_memory)
+      ? (record.context_memory as Record<string, unknown>)
+      : {};
+  const preferenceMemory =
+    record.preference_memory && typeof record.preference_memory === 'object' && !Array.isArray(record.preference_memory)
+      ? (record.preference_memory as Record<string, unknown>)
+      : {};
+
+  return {
+    vibeSummary: asString(record.vibeSummary ?? record.vibe_summary),
+    socialStyle: asString(record.socialStyle ?? record.social_style),
+    emotionalStyle: asString(record.emotionalStyle ?? record.emotional_style),
+    depthPreference: asString(record.depthPreference ?? record.depth_preference ?? preferenceMemory.depth_preference),
+    currentMoodTheme: asString(record.currentMoodTheme ?? record.current_mood_theme ?? contextMemory.current_mood_theme),
+    interests: asStringArray(record.interests),
+    hobbies: asStringArray(record.hobbies),
+    favoriteEnvironments: asStringArray(record.favoriteEnvironments ?? record.favorite_environments),
+    traits: asStringArray(record.traits),
+  };
+}
+
+function pruneEmpty<T extends Record<string, unknown>>(record: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => {
+      if (value === undefined || value === null) return false;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === 'string') return value.trim().length > 0;
+      return true;
+    }),
+  ) as Partial<T>;
+}
+
+function buildProfileMemoryPayload(snapshot: Partial<ProfileSnapshot>) {
+  return {
+    profile_memory: pruneEmpty({
+      interests: snapshot.interests,
+      traits: snapshot.traits,
+      favorite_environments: snapshot.favoriteEnvironments,
+      hobbies: snapshot.hobbies,
+      social_style: snapshot.socialStyle,
+      vibe_summary: snapshot.vibeSummary,
+      emotional_style: snapshot.emotionalStyle,
+    }),
+    context_memory: pruneEmpty({
+      current_mood_theme: snapshot.currentMoodTheme,
+    }),
+    preference_memory: pruneEmpty({
+      depth_preference: snapshot.depthPreference,
+    }),
+  };
+}
+
+function profileDraftKey(userId: string) {
+  const safeUserId = userId.replace(/[^A-Za-z0-9._-]/g, '_');
+  return `${PROFILE_DRAFT_KEY_PREFIX}.${safeUserId}`;
+}
+
+async function loadLocalProfileDraft(userId: string): Promise<Partial<ProfileSnapshot> | null> {
+  const key = profileDraftKey(userId);
+  const raw =
+    Platform.OS === 'web'
+      ? globalThis.localStorage?.getItem(key) ?? null
+      : await SecureStore.getItemAsync(key);
+  if (!raw) return null;
+
+  try {
+    return normalizeProfileSnapshot(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+async function saveLocalProfileDraft(userId: string, snapshot: Partial<ProfileSnapshot>) {
+  const key = profileDraftKey(userId);
+  const value = JSON.stringify(snapshot);
+
+  if (Platform.OS === 'web') {
+    globalThis.localStorage?.setItem(key, value);
+    return;
+  }
+
+  await SecureStore.setItemAsync(key, value);
 }
 
 // ---------------------------------------------------------------------------
@@ -247,10 +351,23 @@ export default function MyProfileScreen() {
     if (!user?.id || !accessToken) return;
     setIsLoading(true);
     try {
-      const response = await getProfileMemory(user.id, accessToken);
-      if (response?.profile_memory) setProfile(response.profile_memory);
-    } catch (e) {
-      Alert.alert('Error', 'No se pudo cargar el perfil.');
+      const [response, localDraft] = await Promise.all([
+        getProfileMemory(user.id, accessToken),
+        loadLocalProfileDraft(user.id),
+      ]);
+      const remoteProfile = normalizeProfileSnapshot({
+          ...(response?.profile_memory ?? {}),
+          context_memory: response?.context_memory ?? undefined,
+          preference_memory: response?.preference_memory ?? undefined,
+      });
+      setProfile({ ...remoteProfile, ...(localDraft ?? {}) });
+    } catch {
+      const localDraft = await loadLocalProfileDraft(user.id);
+      if (localDraft) {
+        setProfile(localDraft);
+      } else {
+        Alert.alert('Error', 'No se pudo cargar el perfil.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -258,14 +375,20 @@ export default function MyProfileScreen() {
 
   useFocusEffect(useCallback(() => { loadProfile(); }, [loadProfile]));
 
+  const persistProfile = useCallback(async (nextProfile: Partial<ProfileSnapshot>) => {
+    if (!user?.id || !accessToken) return;
+    await saveLocalProfileDraft(user.id, nextProfile);
+    await saveProfileMemory(user.id, accessToken, buildProfileMemoryPayload(nextProfile));
+  }, [accessToken, user?.id]);
+
   const handleSave = async () => {
-    if (!user?.id || !accessToken || !profile) return;
+    if (!profile) return;
     setIsSaving(true);
     try {
-      await saveProfileMemory(user.id, accessToken, { profile_memory: profile });
+      await persistProfile(profile);
       setSavedOk(true);
       setTimeout(() => setSavedOk(false), 2500);
-    } catch (e) {
+    } catch {
       Alert.alert('Error', 'No se pudo guardar el perfil.');
     } finally {
       setIsSaving(false);
@@ -277,17 +400,29 @@ export default function MyProfileScreen() {
     setModalVisible(true);
   };
 
-  const handleFieldSave = (val: string) => {
+  const handleFieldSave = async (val: string) => {
     if (!activeField) return;
-    setProfile((prev) => {
-      const next = { ...(prev ?? {}) } as any;
-      if (activeField.type === 'array') {
-        next[activeField.key] = val.split(',').map((s) => s.trim()).filter(Boolean);
-      } else {
-        next[activeField.key] = val;
-      }
-      return next;
-    });
+    const next = { ...(profile ?? {}) } as Partial<ProfileSnapshot>;
+    if (activeField.type === 'array') {
+      (next as any)[activeField.key] = val.split(',').map((s) => s.trim()).filter(Boolean);
+    } else {
+      (next as any)[activeField.key] = val.trim();
+    }
+
+    setProfile(next);
+    if (user?.id) {
+      await saveLocalProfileDraft(user.id, next);
+    }
+    setIsSaving(true);
+    try {
+      await persistProfile(next);
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 1800);
+    } catch {
+      Alert.alert('Error', 'No se pudo guardar este cambio.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const activeRaw = activeField && profile ? (profile as any)[activeField.key] : '';
