@@ -1,4 +1,5 @@
 ﻿import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -131,6 +132,42 @@ function clamp(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
 }
 
+function normalizeId(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.trim().toLowerCase();
+}
+
+function normalizeIdentityText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function createSelfIdentityTokens(...values: unknown[]): Set<string> {
+  return new Set(
+    values
+      .flatMap((value) => [normalizeId(value), normalizeIdentityText(value)])
+      .filter(Boolean),
+  );
+}
+
+function isSelfNearbyUser(nearbyUser: NearbyUser, selfTokens: Set<string>): boolean {
+  if (selfTokens.size === 0) return false;
+
+  const nearbyTokens = [
+    normalizeId(nearbyUser.id),
+    normalizeIdentityText(nearbyUser.id),
+    normalizeId(nearbyUser.name),
+    normalizeIdentityText(nearbyUser.name),
+  ].filter((token) => token && token !== "persona");
+
+  return nearbyTokens.some((token) => selfTokens.has(token));
+}
+
 function hashText(input: string): number {
   let h = 0;
   for (let i = 0; i < input.length; i++)
@@ -163,20 +200,140 @@ function formatConnectionLabel(status: SocketStatus): string {
   }
 }
 
+function readStringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function findDisplayName(value: unknown, depth = 0): string {
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 3) return "";
+
+  const record = value as Record<string, unknown>;
+  const wsPrimaryNameKeys = [
+    "name",
+    "user_name",
+    "userName",
+    "nombre",
+    "nombre_usuario",
+    "nombreUsuario",
+    "display_name",
+    "displayName",
+    "full_name",
+    "fullName",
+    "real_name",
+    "realName",
+  ];
+
+  for (const key of wsPrimaryNameKeys) {
+    const direct = readStringField(record, key);
+    if (direct) return direct;
+  }
+
+  const nameKeys = [
+    "username",
+    "nickname",
+    "alias",
+    "handle",
+    "nombre_completo",
+    "nombreCompleto",
+  ];
+
+  for (const key of nameKeys) {
+    const direct = readStringField(record, key);
+    if (direct) return direct;
+  }
+
+  const firstName = readStringField(record, "first_name") || readStringField(record, "firstName") || readStringField(record, "firstname");
+  const lastName = readStringField(record, "last_name") || readStringField(record, "lastName") || readStringField(record, "lastname");
+  const combined = `${firstName} ${lastName}`.trim();
+  if (combined) return combined;
+
+  const nestedKeys = ["profile", "user", "account", "person", "identity", "data", "payload", "result"];
+  for (const key of nestedKeys) {
+    const nested = findDisplayName(record[key], depth + 1);
+    if (nested) return nested;
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    const nested = findDisplayName(nestedValue, depth + 1);
+    if (nested) return nested;
+  }
+
+  return "";
+}
+
+function extractUserName(record: Record<string, unknown>): string {
+  const displayName = findDisplayName(record);
+  if (displayName) return displayName;
+
+  return "Persona";
+}
+
+function extractUserNameMap(record: Record<string, unknown>): Record<string, string> {
+  const map: Record<string, string> = {};
+  const candidateKeys = [
+    "user_names",
+    "userNames",
+    "nearby_user_names",
+    "nearbyUserNames",
+    "names_by_user_id",
+    "namesByUserId",
+    "user_name_by_id",
+    "userNameById",
+    "users_by_id",
+    "usersById",
+  ];
+
+  for (const key of candidateKeys) {
+    const candidate = record[key];
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+
+    const entries = Object.entries(candidate as Record<string, unknown>);
+    for (const [id, value] of entries) {
+      if (typeof value === "string" && value.trim()) {
+        map[id] = value.trim();
+        continue;
+      }
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const nestedName = extractUserName(value as Record<string, unknown>);
+        if (nestedName && nestedName !== "Persona" && nestedName !== id) {
+          map[id] = nestedName;
+        }
+      }
+    }
+  }
+
+  return map;
+}
+
 function normalizeUsers(input: unknown): NearbyUser[] {
+  return normalizeUsersWithNameMap(input, {});
+}
+
+function normalizeUsersWithNameMap(input: unknown, userNameMap: Record<string, string>): NearbyUser[] {
   if (!Array.isArray(input)) return [];
   const result: NearbyUser[] = [];
-  input.forEach((item, i) => {
+  input.forEach((item) => {
     if (typeof item === "string") {
-      result.push({ id: item, name: item, online: true, subtitle: "cerca" });
+      const mappedName = userNameMap[item]?.trim();
+      result.push({ id: item, name: mappedName || item, online: true, subtitle: "cerca" });
       return;
     }
     if (!item || typeof item !== "object") return;
     const r = item as Record<string, unknown>;
-    const name =
-      String(r.name ?? r.username ?? r.display_name ?? r.full_name ?? "").trim() ||
-      `User ${i + 1}`;
-    const id = String(r.id ?? r.user_id ?? name);
+    const id = String(
+      r.id ??
+      r.user_id ??
+      r.userId ??
+      r.client_id ??
+      r.clientId ??
+      r.uuid ??
+      r.key ??
+      "",
+    ).trim() || extractUserName(r);
+    const extractedName = extractUserName(r);
+    const mappedName = userNameMap[id]?.trim();
+    const name = mappedName || extractedName;
     result.push({
       id,
       name,
@@ -195,6 +352,77 @@ function normalizeUsers(input: unknown): NearbyUser[] {
     });
   });
   return result.slice(0, MAX_VISIBLE_USERS);
+}
+
+function isUserLikeRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    "id" in record ||
+    "user_id" in record ||
+    "userId" in record ||
+    "client_id" in record ||
+    "clientId" in record ||
+    "name" in record ||
+    "user_name" in record ||
+    "userName" in record ||
+    "nombre" in record ||
+    "username" in record ||
+    "display_name" in record ||
+    "full_name" in record ||
+    "avatar" in record ||
+    "avatar_uri" in record ||
+    "distance" in record ||
+    "compatibility" in record ||
+    "online" in record
+  );
+}
+
+function normalizeUsersFromPayload(
+  input: unknown,
+  inheritedNameMap: Record<string, string> = {},
+): NearbyUser[] {
+  if (!input) return [];
+  if (Array.isArray(input)) return normalizeUsersWithNameMap(input, inheritedNameMap);
+  if (typeof input !== "object") return [];
+
+  const r = input as Record<string, unknown>;
+  const mergedNameMap = { ...inheritedNameMap, ...extractUserNameMap(r) };
+  const candidates = [
+    r.nearby_users,
+    r.nearbyUsers,
+    r.users,
+    r.connected_users,
+    r.connectedUsers,
+    r.room_users,
+    r.roomUsers,
+    r.people,
+    r.nearby_people,
+    r.nearbyPeople,
+    r.data,
+    r.payload,
+    r.result,
+    r.items,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeUsersFromPayload(candidate, mergedNameMap);
+    if (normalized.length > 0) return normalized;
+  }
+
+  if (isUserLikeRecord(r)) {
+    return normalizeUsersWithNameMap([r], mergedNameMap);
+  }
+
+  const values = Object.values(r).filter((value) => value && typeof value === "object" && !Array.isArray(value));
+  if (values.length > 0) {
+    return normalizeUsersWithNameMap(values, mergedNameMap);
+  }
+
+  const nestedList = Object.values(r).find((value) => Array.isArray(value));
+  if (nestedList) return normalizeUsersWithNameMap(nestedList, mergedNameMap);
+
+  return [];
 }
 
 function normalizePlaces(input: unknown): NearbyPlace[] {
@@ -224,6 +452,41 @@ function normalizePlaces(input: unknown): NearbyPlace[] {
   return result.slice(0, MAX_VISIBLE_PLACES);
 }
 
+function normalizePlacesFromPayload(input: unknown): NearbyPlace[] {
+  if (!input) return [];
+  if (Array.isArray(input)) return normalizePlaces(input);
+  if (typeof input !== "object") return [];
+
+  const r = input as Record<string, unknown>;
+  const candidates = [
+    r.nearby_places,
+    r.nearbyPlaces,
+    r.places,
+    r.spots,
+    r.locations,
+    r.groups,
+    r.data,
+    r.payload,
+    r.result,
+    r.items,
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizePlacesFromPayload(candidate);
+    if (normalized.length > 0) return normalized;
+  }
+
+  const values = Object.values(r).filter((value) => value && typeof value === "object" && !Array.isArray(value));
+  if (values.length > 0) {
+    return normalizePlaces(values);
+  }
+
+  const nestedList = Object.values(r).find((value) => Array.isArray(value));
+  if (nestedList) return normalizePlaces(nestedList);
+
+  return [];
+}
+
 // ─── Bubble descriptors ───────────────────────────────────────────────────────
 
 function buildBubbleDescriptors(
@@ -233,6 +496,7 @@ function buildBubbleDescriptors(
   height: number,
   selectedId: string | null,
   currentCoords: { lat: number; lng: number } | null,
+  positionCache: Map<string, { x: number; y: number }>,
 ): BubbleDescriptor[] {
   const sw = Math.max(width, 320);
   const sh = Math.max(height * 0.62, 440);
@@ -245,18 +509,19 @@ function buildBubbleDescriptors(
     const ry = sh * 0.18 + i * 6;
     const seed = hashText(place.id);
     const theme = PLACE_THEMES[i % PLACE_THEMES.length];
-    return {
+    const cachedPosition = positionCache.get(`place-${place.id}`);
+    const descriptor = {
       id: `place-${place.id}`,
       kind: "place" as const,
       title: place.name,
       subtitle: `${place.activeUsers} aquí`,
       photoUri: place.photoUri,
       size: clamp(128 - i * 6, 100, 136),
-      x: clamp(
+      x: cachedPosition?.x ?? clamp(
         cx + Math.cos(angle) * rx + seededOffset(seed, 20) - 60,
         12, sw - 148,
       ),
-      y: clamp(
+      y: cachedPosition?.y ?? clamp(
         cy + Math.sin(angle) * ry + seededOffset(seed + 1, 18) - 60,
         64, sh - 180,
       ),
@@ -265,6 +530,8 @@ function buildBubbleDescriptors(
       border: theme.border,
       isActive: true,
     } satisfies BubbleDescriptor;
+    positionCache.set(descriptor.id, { x: descriptor.x, y: descriptor.y });
+    return descriptor;
   });
 
   const userDescriptors = users.map((user, i) => {
@@ -274,18 +541,19 @@ function buildBubbleDescriptors(
     const seed = hashText(user.id);
     const theme = USER_THEMES[i % USER_THEMES.length];
     const isSelected = selectedId === `user-${user.id}`;
-    return {
+    const cachedPosition = positionCache.get(`user-${user.id}`);
+    const descriptor = {
       id: `user-${user.id}`,
       kind: "user" as const,
       title: user.name,
       subtitle: user.subtitle ?? (user.online ? "en línea" : "ausente"),
       avatarUri: user.avatarUri,
       size: isSelected ? 100 : clamp(82 - i * 2, 60, 84),
-      x: clamp(
+      x: cachedPosition?.x ?? clamp(
         cx + Math.cos(angle) * rx + seededOffset(seed, 26) - 41,
         10, sw - 110,
       ),
-      y: clamp(
+      y: cachedPosition?.y ?? clamp(
         cy + Math.sin(angle) * ry + seededOffset(seed + 2, 22) - 41,
         52, sh - 130,
       ),
@@ -297,6 +565,8 @@ function buildBubbleDescriptors(
       distance: user.distance,
       compatibility: user.compatibility,
     } satisfies BubbleDescriptor;
+    positionCache.set(descriptor.id, { x: descriptor.x, y: descriptor.y });
+    return descriptor;
   });
 
   const selfDescriptor: BubbleDescriptor = {
@@ -315,6 +585,7 @@ function buildBubbleDescriptors(
     isActive: true,
   };
 
+  positionCache.set(selfDescriptor.id, { x: selfDescriptor.x, y: selfDescriptor.y });
   return [...placeDescriptors, selfDescriptor, ...userDescriptors];
 }
 
@@ -330,24 +601,7 @@ function createBubbleModel(d: BubbleDescriptor): BubbleModel {
     Animated.spring(scale,   { toValue: 1, tension: 70, friction: 8,  useNativeDriver: true }),
   ]).start();
 
-  Animated.loop(
-    Animated.sequence([
-      Animated.timing(motion, {
-        toValue: 1,
-        duration: 3400 + (hashText(d.id) % 1600),
-        easing: Easing.inOut(Easing.sin),
-        useNativeDriver: true,
-      }),
-      Animated.timing(motion, {
-        toValue: 0,
-        duration: 3400 + (hashText(d.id) % 1600),
-        easing: Easing.inOut(Easing.sin),
-        useNativeDriver: true,
-      }),
-    ]),
-  ).start();
-
-  motion.setValue(d.kind === "place" ? 0.12 : 0.22);
+  motion.setValue(0);
   return { ...d, opacity, scale, motion };
 }
 
@@ -513,14 +767,6 @@ function BubbleItem({
   const breathe = bubble.motion.interpolate({
     inputRange: [0, 0.5, 1], outputRange: [1, 1.032, 1],
   });
-  const driftX = bubble.motion.interpolate({
-    inputRange: [0, 1],
-    outputRange: [bubble.kind === "place" ? -6 : -9, bubble.kind === "place" ? 6 : 9],
-  });
-  const driftY = bubble.motion.interpolate({
-    inputRange: [0, 1],
-    outputRange: [bubble.kind === "place" ? -8 : -11, bubble.kind === "place" ? 8 : 11],
-  });
   const tapScale = expanded.interpolate({
     inputRange: [0, 1], outputRange: [1, 1.14],
   });
@@ -543,8 +789,6 @@ function BubbleItem({
           opacity: bubble.opacity,
           transform: [
             { scale: Animated.multiply(bubble.scale, breathe) },
-            { translateX: driftX },
-            { translateY: driftY },
           ],
         },
       ]}
@@ -555,6 +799,7 @@ function BubbleItem({
         <Animated.View
           style={[
             styles.bubbleShell,
+            bubble.kind === "user" && styles.userBubbleShell,
             {
               width: bubble.size, height: bubble.size,
               borderRadius: bubble.size / 2,
@@ -594,74 +839,55 @@ function BubbleItem({
 // ─── User bubble ──────────────────────────────────────────────────────────────
 
 function UserBubble({ bubble }: { bubble: BubbleModel }) {
-  const av = Math.round(bubble.size * 0.51);
+  const shortName = bubble.title.trim().split(/\s+/)[0] || bubble.title;
   return (
     <View style={styles.userInner}>
-      {/* Badge de distancia (arriba derecha) */}
-      {bubble.distance && (
-        <View style={[styles.distBadge, { backgroundColor: bubble.accent }]}>
-          <Text style={styles.distBadgeText}>{bubble.distance}</Text>
-        </View>
-      )}
-
-      {/* Badge de compatibilidad (arriba izquierda) */}
-      {bubble.compatibility != null && (
-        <View
-          style={[
-            styles.compatBadge,
-            {
-              backgroundColor: `${bubble.accent}1A`,
-              borderColor: `${bubble.accent}40`,
-            },
-          ]}
-        >
-          <Text style={[styles.compatBadgeText, { color: bubble.accent }]}>
-            {bubble.compatibility}%
-          </Text>
-        </View>
-      )}
-
-      {/* Avatar */}
-      <View
-        style={[
-          styles.avatarRing,
-          {
-            width: av, height: av, borderRadius: av / 2,
-            borderColor: bubble.border,
-            backgroundColor: `${bubble.accent}18`,
-          },
-        ]}
-      >
+      <View style={[styles.userOuterHalo, { borderColor: `${bubble.accent}30` }]} />
+      <View style={styles.userAvatarClip}>
+        <View style={[styles.userGlowRing, { borderColor: `${bubble.accent}44` }]} />
         {bubble.avatarUri ? (
           <Image
             source={{ uri: bubble.avatarUri }}
-            style={styles.avatarImg}
+            style={styles.userAvatarFill}
             contentFit="cover"
           />
         ) : (
-          <Text style={[styles.avatarInitials, { color: bubble.accent }]}>
-            {initials(bubble.title)}
-          </Text>
+          <LinearGradient
+            colors={[`${bubble.accent}2E`, `${bubble.accent}12`, C.white]}
+            start={{ x: 0.14, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.userFallbackFill}
+          >
+            <Text style={[styles.avatarInitials, { color: bubble.accent }]}>
+              {initials(bubble.title)}
+            </Text>
+          </LinearGradient>
         )}
-        {/* Punto online */}
-        <View
-          style={[
-            styles.pip,
-            { backgroundColor: bubble.online ? C.green : C.muted },
-          ]}
+
+        <LinearGradient
+          colors={["rgba(255,255,255,0.24)", "rgba(26,26,46,0.00)", "rgba(26,26,46,0.18)"]}
+          locations={[0, 0.55, 1]}
+          style={styles.userShadeMask}
         />
+        <View style={styles.userHighlight} />
       </View>
 
-      <Text numberOfLines={1} style={styles.userName}>
-        {bubble.title}
-      </Text>
-      <View style={styles.userStatusRow}>
-        <View style={[styles.onlineDot, { backgroundColor: bubble.online ? C.green : C.muted }]} />
-        <Text
-          numberOfLines={1}
-          style={[styles.userStatus, { color: bubble.online ? C.green : C.muted }]}
-        >
-          {bubble.online ? "en línea" : "ausente"}
+      {bubble.distance && (
+        <View style={[styles.userMiniTag, { backgroundColor: `${bubble.accent}E6` }]}>
+          <Text style={styles.userMiniTagText}>{bubble.distance}</Text>
+        </View>
+      )}
+
+      <View
+        style={[
+          styles.pip,
+          styles.pipElevated,
+          { backgroundColor: bubble.online ? C.green : C.muted },
+        ]}
+      />
+      <View style={styles.userNameChip}>
+        <Text numberOfLines={1} style={styles.userNameOverlay}>
+          {shortName}
         </Text>
       </View>
     </View>
@@ -723,9 +949,7 @@ export default function LocationScreen() {
   const [connectionStatus, setConnectionStatus] = useState<SocketStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
-  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const [nearbySpaces, setNearbySpaces] = useState<Space[]>([]);
-  const [latestBroadcast, setLatestBroadcast] = useState("Esperando señales cercanas…");
   const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>("self-location");
   const [connectivityNote, setConnectivityNote] = useState("Solicitando permiso…");
   const [matchCount, setMatchCount] = useState(0);
@@ -778,9 +1002,13 @@ export default function LocationScreen() {
   const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const coordsRef = useRef<{ lat: number; lng: number } | null>(null);
   const clientIdRef = useRef(user?.id ?? `mobile-${Math.floor(Math.random() * 9000) + 1000}`);
+  const userNameRef = useRef(user?.nombre?.trim() ?? "");
   const lastNearbySpacesFetchRef = useRef(0);
+  const nearbyUserCacheRef = useRef(new Map<string, { user: NearbyUser; lastSeen: number }>());
+  const bubblePositionCacheRef = useRef(new Map<string, { x: number; y: number }>());
 
   useEffect(() => { if (user?.id) clientIdRef.current = user.id; }, [user?.id]);
+  useEffect(() => { userNameRef.current = user?.nombre?.trim() ?? ""; }, [user?.nombre]);
 
   const fetchNearbySpaces = useCallback(async (options: { force?: boolean } = {}) => {
     const coords = coordsRef.current;
@@ -929,20 +1157,73 @@ export default function LocationScreen() {
   }, []);
 
   const processBroadcast = useCallback((data: unknown, raw: string) => {
-    const entry: BroadcastEntry = { raw };
     if (data && typeof data === "object" && !Array.isArray(data)) {
       const r = data as Record<string, unknown>;
-      const us = r.nearby_users ?? r.users ?? r.connected_users ?? r.room_users;
-      const ps = r.nearby_places ?? r.places ?? r.spots ?? r.locations;
-      entry.users = normalizeUsers(us);
-      entry.places = normalizePlaces(ps);
-      if (typeof r.message === "string") entry.raw = r.message;
-      else if (typeof r.text === "string") entry.raw = r.text;
+      let users = normalizeUsersFromPayload(r);
+
+      if (users.length === 0 && typeof r.user_id === "string") {
+        const directName = typeof r.user_name === "string" ? r.user_name.trim() : "";
+        users = [{
+          id: r.user_id,
+          name: directName || "Persona",
+          online: true,
+          subtitle: "cerca",
+        }];
+      }
+
+      const selfTokens = createSelfIdentityTokens(
+        user?.id,
+        user?.nombre,
+        user?.email,
+        clientIdRef.current,
+        userNameRef.current,
+      );
+
+      users = users.filter((u) => !isSelfNearbyUser(u, selfTokens));
+      nearbyUserCacheRef.current.forEach((entry, cacheId) => {
+        const cachedAsNearbyUser = {
+          ...entry.user,
+          id: entry.user.id || cacheId,
+        };
+        if (isSelfNearbyUser(cachedAsNearbyUser, selfTokens)) {
+          nearbyUserCacheRef.current.delete(cacheId);
+        }
+      });
+
+      const now = Date.now();
+      for (const userItem of users) {
+        const current = nearbyUserCacheRef.current.get(userItem.id);
+        const incomingName = (userItem.name ?? "").trim();
+        const hasMeaningfulIncomingName = incomingName.length > 0 && incomingName !== userItem.id && incomingName !== "Persona";
+        const existingName = (current?.user.name ?? "").trim();
+        const resolvedName = hasMeaningfulIncomingName
+          ? incomingName
+          : existingName || incomingName || "Persona";
+
+        nearbyUserCacheRef.current.set(userItem.id, {
+          user: {
+            ...current?.user,
+            ...userItem,
+            name: resolvedName,
+          },
+          lastSeen: now,
+        });
+      }
+
+      const freshUsers = Array.from(nearbyUserCacheRef.current.values())
+        .filter((entry) => now - entry.lastSeen <= 25000)
+        .filter((entry) => !isSelfNearbyUser(entry.user, selfTokens))
+        .map((entry) => entry.user);
+
+      nearbyUserCacheRef.current.forEach((entry, id) => {
+        if (now - entry.lastSeen > 25000) {
+          nearbyUserCacheRef.current.delete(id);
+        }
+      });
+
+      setNearbyUsers(freshUsers);
     }
-    if (entry.users)  setNearbyUsers(entry.users);
-    if (entry.places) setNearbyPlaces(entry.places);
-    setLatestBroadcast(entry.raw);
-  }, []);
+  }, [user?.email, user?.id, user?.nombre]);
 
   const ensureSocketService = useCallback(() => {
     if (wsServiceRef.current) return wsServiceRef.current;
@@ -951,7 +1232,6 @@ export default function LocationScreen() {
         setConnectionStatus(status);
         setConnectivityNote(formatConnectionLabel(status));
       },
-      onOpen: () => { setErrorMessage(null); setConnectivityNote("Señales en vivo"); },
       onClose: (event) => { setConnectivityNote(`Desconectado (${event.code})`); },
       onError: (event) => { setErrorMessage(event.message); setConnectivityNote(event.message); },
       onMessage: (data, raw) => { processBroadcast(data, raw); },
@@ -963,10 +1243,15 @@ export default function LocationScreen() {
     const service = wsServiceRef.current;
     const coords = coordsRef.current;
     if (!service || !coords) return;
+    const currentUserName = userNameRef.current;
     service.sendLocation({
       lat: coords.lat, lng: coords.lng,
       timestamp: new Date().toISOString(),
       clientId: clientIdRef.current,
+      user_id: clientIdRef.current,
+      userId: clientIdRef.current,
+      user_name: currentUserName || undefined,
+      userName: currentUserName || undefined,
     });
   }, []);
 
@@ -982,7 +1267,7 @@ export default function LocationScreen() {
         setConnectivityNote("Permiso denegado");
         return;
       }
-      setConnectivityNote("Buscando personas y lugares…");
+      setConnectivityNote("Buscando personas y grupos…");
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const fc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       coordsRef.current = fc;
@@ -1031,6 +1316,18 @@ export default function LocationScreen() {
     return () => { stopSendLoop(); };
   }, [connectionStatus, sendCurrentLocation, stopSendLoop]);
 
+  const visibleNearbyUsers = useMemo(() => {
+    const selfTokens = createSelfIdentityTokens(
+      user?.id,
+      user?.nombre,
+      user?.email,
+      clientIdRef.current,
+      userNameRef.current,
+    );
+
+    return nearbyUsers.filter((nearbyUser) => !isSelfNearbyUser(nearbyUser, selfTokens));
+  }, [nearbyUsers, user?.email, user?.id, user?.nombre]);
+
   const bubbleDescriptors = useMemo(
     () => {
       // Convertir espacios en places para mostrarlos en el radar
@@ -1043,10 +1340,17 @@ export default function LocationScreen() {
         isGroup: true,
         spaceId: space.space_id,
       }));
-      const allPlaces = [...nearbyPlaces, ...groupPlaces];
-      return buildBubbleDescriptors(nearbyUsers, allPlaces, width, height, selectedBubbleId, currentCoords);
+      return buildBubbleDescriptors(
+        visibleNearbyUsers,
+        groupPlaces,
+        width,
+        height,
+        selectedBubbleId,
+        currentCoords,
+        bubblePositionCacheRef.current,
+      );
     },
-    [currentCoords, height, nearbyPlaces, nearbyUsers, selectedBubbleId, width, nearbySpaces],
+    [currentCoords, height, visibleNearbyUsers, selectedBubbleId, width, nearbySpaces],
   );
 
   const floatingBubbles = useFloatingBubbleModels(bubbleDescriptors);
@@ -1155,7 +1459,7 @@ export default function LocationScreen() {
               <View style={[styles.statIconDot, { backgroundColor: C.rose }]} />
             </View>
             <View>
-              <Text style={styles.statN}>{nearbyUsers.length}</Text>
+              <Text style={styles.statN}>{visibleNearbyUsers.length}</Text>
               <Text style={styles.statL}>Personas</Text>
             </View>
           </View>
@@ -1164,8 +1468,8 @@ export default function LocationScreen() {
               <View style={[styles.statIconDot, { backgroundColor: C.gold }]} />
             </View>
             <View>
-              <Text style={styles.statN}>{nearbyPlaces.length}</Text>
-              <Text style={styles.statL}>Lugares</Text>
+              <Text style={styles.statN}>{nearbySpaces.length}</Text>
+              <Text style={styles.statL}>Grupos</Text>
             </View>
           </View>
           <View style={styles.statChip}>
@@ -1187,16 +1491,6 @@ export default function LocationScreen() {
         {/* Footer */}
         <View style={styles.footer} pointerEvents="box-none">
           <View style={styles.footerCard}>
-            <View style={styles.broadcastRow}>
-              <View style={[styles.broadcastBar, { backgroundColor: statusColor }]} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.broadcastLabel}>Señal en vivo</Text>
-                <Text numberOfLines={2} style={styles.broadcastMsg}>
-                  {latestBroadcast}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.sep} />
             <View style={styles.coordRow}>
               <Text style={styles.coordLabel}>Coordenadas</Text>
               <Text style={styles.coordValue}>
@@ -1561,11 +1855,46 @@ const styles = StyleSheet.create({
     shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 }, elevation: 5,
   },
+  userBubbleShell: {
+    overflow: "visible",
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    shadowColor: "#111827",
+    shadowOpacity: 0.13,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 9 },
+    elevation: 8,
+  },
 
   // User bubble
   userInner: {
-    flex: 1, alignItems: "center", justifyContent: "center",
-    gap: 3, paddingHorizontal: 8,
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  },
+  userOuterHalo: {
+    position: "absolute",
+    inset: -3,
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: "rgba(255,255,255,0.58)",
+  },
+  userAvatarClip: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    overflow: "hidden",
+    backgroundColor: C.white,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.96)",
+  },
+  userGlowRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 999,
+    borderWidth: 6,
+    opacity: 0.62,
   },
   distBadge: {
     position: "absolute", top: -7, right: -4,
@@ -1579,26 +1908,78 @@ const styles = StyleSheet.create({
     borderRadius: 999, borderWidth: 0.5,
   },
   compatBadgeText: { fontSize: 9, fontWeight: "700" },
-  avatarRing: {
-    borderWidth: 2, overflow: "hidden",
-    alignItems: "center", justifyContent: "center",
-    position: "relative",
+  userAvatarFill: {
+    ...StyleSheet.absoluteFillObject,
+    width: "100%",
+    height: "100%",
   },
-  avatarImg: { width: "100%", height: "100%" },
-  avatarInitials: { fontSize: 14, fontWeight: "800" },
+  userFallbackFill: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  userShadeMask: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  userHighlight: {
+    position: "absolute",
+    top: 8,
+    left: 11,
+    width: 24,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.30)",
+    transform: [{ rotate: "-18deg" }],
+  },
+  avatarInitials: { fontSize: 18, fontWeight: "900" },
+  userNameChip: {
+    position: "absolute",
+    bottom: -14,
+    maxWidth: 82,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(26,26,46,0.08)",
+    shadowColor: "#111827",
+    shadowOpacity: 0.08,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  userNameOverlay: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: C.ink,
+    textAlign: "center",
+  },
   pip: {
     position: "absolute", bottom: 1, right: 1,
-    width: 10, height: 10, borderRadius: 5,
-    borderWidth: 2, borderColor: C.white,
+    width: 16, height: 16, borderRadius: 8,
+    borderWidth: 3, borderColor: C.white,
   },
-  userName: {
-    fontSize: 10, fontWeight: "700",
-    color: C.ink, textAlign: "center",
+  pipElevated: {
+    right: -1,
+    top: -1,
+    bottom: undefined,
+    shadowColor: C.green,
+    shadowOpacity: 0.45,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
   },
+  userMiniTag: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.36)",
+  },
+  userMiniTagText: { color: C.white, fontSize: 9, fontWeight: "800" },
   statIconDot: { width: 8, height: 8, borderRadius: 4 },
-  onlineDot: { width: 7, height: 7, borderRadius: 4 },
-  userStatusRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  userStatus: { fontSize: 9, fontWeight: "600", textAlign: "center" },
 
   // Place bubble
   placeInner: {

@@ -11,6 +11,10 @@ export interface LocationPayload {
   lng: number;
   timestamp: string;
   clientId?: string;
+  user_id?: string;
+  userId?: string;
+  user_name?: string;
+  userName?: string;
 }
 
 export interface WebSocketServiceCallbacks {

@@ -81,7 +81,8 @@ export default function HomeScreen() {
       <Link href="/progressive-profile" style={styles.link}>
         Ver perfil con desbloqueo progresivo
       </Link>
-    </View>
+    </ScrollView>
+  </SafeAreaView>
   );
 }
 

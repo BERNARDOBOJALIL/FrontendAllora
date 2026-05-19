@@ -19,7 +19,6 @@ type Mode = 'login' | 'register';
 
 export default function AuthScreen() {
   const { isAuthenticated, login, register } = useAuth();
-  const router = useRouter();
 
   const [mode, setMode] = useState<Mode>('login');
   const [nombre, setNombre] = useState('');
