@@ -3,17 +3,30 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Dimensions,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Animated,
+  Dimensions,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
+
+const DEFAULT_PROFILE = {
+  photoUrl: 'https://randomuser.me/api/portraits/women/68.jpg',
+  vibe_summary: 'Tranquila y creativa, amante de los gatos y el café.',
+  social_style: 'Selectiva pero abierta cuando hay confianza.',
+  emotional_style: 'Cálida y empática.',
+  depth_preference: 'Profundidad media, le gusta hablar de sentimientos sin presión.',
+  interests: ['Música lo-fi', 'Fotografía analógica', 'Senderismo'],
+  hobbies: ['Tocar guitarra', 'Escribir poesía', 'Cocinar postres'],
+  favorite_environments: ['Cafés tranquilos', 'Parques con árboles', 'Librerías de viejo'],
+  traits: ['Curiosa', 'Observadora', 'Leal'],
+  current_mood_theme: 'Optimista, con ganas de conocer gente nueva',
+};
 const PROFILE = {
   photoUrl: 'https://randomuser.me/api/portraits/women/68.jpg',
   vibe_summary: 'Tranquila y creativa, amante de los gatos y el café.',
@@ -27,13 +40,31 @@ const PROFILE = {
   current_mood_theme: 'Optimista, con ganas de conocer gente nueva',
 };
 
+const FIELDS = [
+  // Sobre ti
+  { key: 'vibe_summary',     label: 'Resumen de vibe',        icon: '✦', card: 'sobre_ti', threshold: 0 },
+  { key: 'social_style',     label: 'Estilo social',          icon: '◎', card: 'sobre_ti', threshold: 25 },
+  { key: 'emotional_style',  label: 'Estilo emocional',       icon: '♡', card: 'sobre_ti', threshold: 45 },
+  { key: 'depth_preference', label: 'Profundidad',            icon: '◈', card: 'sobre_ti', threshold: 70 },
+
+  // Gustos
+  { key: 'interests',        label: 'Intereses',              icon: '★', card: 'gustos',   threshold: 10 },
+  { key: 'hobbies',          label: 'Hobbies',                icon: '◆', card: 'gustos',   threshold: 35 },
+  { key: 'favorite_environments', label: 'Ambientes favoritos', icon: '⬡', card: 'gustos',   threshold: 55 },
+
+  // Personalidad
+  { key: 'traits',           label: 'Rasgos',                 icon: '◉', card: 'personalidad', threshold: 75 },
+  { key: 'current_mood_theme', label: 'Mood actual',          icon: '◐', card: 'personalidad', threshold: 85 },
+];
+
 const UNLOCK_THRESHOLDS = {
   GUSTOS: 40,
   PERSONALIDAD: 60,
   COMPLETO: 100,
 };
 
-export default function ProgressiveProfileScreen() {
+export default function ProgressiveProfileScreen({ profileData, userId }: {profileData?:typeof DEFAULT_PROFILE; userId?: string }) {
+  const profile = profileData || DEFAULT_PROFILE;
   const [unlockLevel, setUnlockLevel] = useState(20);
   const [notification, setNotification] = useState<string | null>(null);
   const [hasGustos, setHasGustos] = useState(false);
@@ -75,7 +106,7 @@ export default function ProgressiveProfileScreen() {
     }, 2000);
   };
 
-  const increaseLevel = (amount: number = 10) => {
+  const increaseLevel = (amount = 10) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setUnlockLevel(prev => Math.min(100, prev + amount));
   };
@@ -103,11 +134,28 @@ export default function ProgressiveProfileScreen() {
     return '✨ ¡Perfil completamente desbloqueado! ✨';
   };
 
+  const renderFields = (cardName: string) => {
+    return FIELDS.filter(f => f.card === cardName).map(field => {
+      if (unlockLevel < field.threshold) return null;
+      const value = profile[field.key as keyof typeof profile];
+      const displayValue = Array.isArray(value) ? value.join(', ') : value;
+      return (
+        <FieldRow
+          key={field.key}
+          icon={field.icon}
+          label={field.label}
+          value={displayValue}
+          opacity={getOpacity(unlockLevel)}
+        />
+      );
+    });
+  };
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <LinearGradient colors={['#fff5f8', '#fff']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.header}>
         <ProgressiveProfileImage photoUrl={PROFILE.photoUrl} unlockLevel={unlockLevel} style={styles.profileImage} />
-        <Text style={styles.name}>demo</Text>
+        <Text style={styles.name}>{userId ?? 'demo'}</Text>
         <Text style={styles.levelText}>Desbloqueo: {unlockLevel}%</Text>
         <View style={styles.progressBarContainer}>
           <View style={[styles.progressBar, { width: `${unlockLevel}%`, backgroundColor: progressColor() }]} />
@@ -125,41 +173,25 @@ export default function ProgressiveProfileScreen() {
         </View>
       </LinearGradient>
 
-      {notification && (
-        <Animated.View style={[styles.notification, { opacity: notificationFade }]}>
-          <Text style={styles.notificationText}>{notification}</Text>
-        </Animated.View>
-      )}
-
-      {/* Tarjeta "Sobre ti" siempre visible */}
+      {/* Tarjeta Sobre ti */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Sobre ti</Text>
-        <FieldRow icon="✦" label="Resumen de vibe" value={PROFILE.vibe_summary} opacity={getOpacity(unlockLevel)} />
-        <FieldRow icon="◎" label="Estilo social" value={PROFILE.social_style} opacity={getOpacity(unlockLevel)} />
-        <FieldRow icon="♡" label="Estilo emocional" value={PROFILE.emotional_style} opacity={getOpacity(unlockLevel)} />
-        <FieldRow icon="◈" label="Profundidad" value={PROFILE.depth_preference} opacity={getOpacity(unlockLevel)} />
+        {renderFields('sobre_ti')}
       </View>
 
-      {/* Tarjeta "Gustos": aparece cuando hasGustos es true (nunca desaparece) */}
-      {hasGustos && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Gustos</Text>
-          <FieldRow icon="★" label="Intereses" value={PROFILE.interests.join(', ')} opacity={getOpacity(unlockLevel)} />
-          <FieldRow icon="◆" label="Hobbies" value={PROFILE.hobbies.join(', ')} opacity={getOpacity(unlockLevel)} />
-          <FieldRow icon="⬡" label="Ambientes favoritos" value={PROFILE.favorite_environments.join(', ')} opacity={getOpacity(unlockLevel)} />
-        </View>
-      )}
+      {/* Tarjeta Gustos */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Gustos</Text>
+        {renderFields('gustos')}
+      </View>
 
-      {/* Tarjeta "Personalidad": aparece cuando hasPersonalidad es true */}
-      {hasPersonalidad && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Personalidad</Text>
-          <FieldRow icon="◉" label="Rasgos" value={PROFILE.traits.join(', ')} opacity={getOpacity(unlockLevel)} />
-          <FieldRow icon="◐" label="Mood actual" value={PROFILE.current_mood_theme} opacity={getOpacity(unlockLevel)} />
-        </View>
-      )}
+      {/* Tarjeta Personalidad */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Personalidad</Text>
+        {renderFields('personalidad')}
+      </View>
 
-      {unlockLevel >= UNLOCK_THRESHOLDS.COMPLETO && (
+      {unlockLevel >= 100 && (
         <View style={styles.completeCard}>
           <LinearGradient colors={['#ff6b9d', '#ff9a76']} style={styles.completeGradient}>
             <Text style={styles.completeText}>✨ ¡Has desbloqueado el perfil completo! ✨</Text>

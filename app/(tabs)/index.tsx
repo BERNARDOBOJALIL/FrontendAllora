@@ -1,6 +1,7 @@
-import { Link } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Link } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/providers/auth-context';
 
@@ -81,7 +82,8 @@ export default function HomeScreen() {
       <Link href="/progressive-profile" style={styles.link}>
         Ver perfil con desbloqueo progresivo
       </Link>
-    </View>
+    </ScrollView>
+  </SafeAreaView>
   );
 }
 
