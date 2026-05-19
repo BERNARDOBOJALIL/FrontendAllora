@@ -109,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     setUser(null);
     setAccessToken(null);
-    await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+    //await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
   };
 
   const value = useMemo(

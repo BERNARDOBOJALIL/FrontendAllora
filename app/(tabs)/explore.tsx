@@ -1,60 +1,36 @@
+import { useAuth } from '@/providers/auth-context';
+import { createMatch, getPotentialMatches } from '@/services/match-service';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
-// Datos estáticos de usuarios (simulan candidatos)
-const STATIC_CANDIDATES = [
-  {
-    user_id: 'user_001',
-    score: 85,
-    reasons: ['Intereses compatibles', 'Cerca de ti', 'Edad similar'],
-    profile: {
-      id: 'user_001',
-      nombre: 'Valentina Torres',
-      edad: 26,
-      fotos: ['https://randomuser.me/api/portraits/women/68.jpg'],
-      intereses: ['Música', 'Fotografía', 'Senderismo'],
-      ubicacion: { ciudad: 'Puebla' },
-    },
-    liked: false,
-  },
-  {
-    user_id: 'user_002',
-    score: 72,
-    reasons: ['Gustos musicales', 'Misma ciudad'],
-    profile: {
-      id: 'user_002',
-      nombre: 'Camila Reyes',
-      edad: 24,
-      fotos: ['https://randomuser.me/api/portraits/women/65.jpg'],
-      intereses: ['Diseño', 'Música', 'Cocina'],
-      ubicacion: { ciudad: 'Cholula' },
-    },
-    liked: false,
-  },
-  {
-    user_id: 'user_003',
-    score: 91,
-    reasons: ['Compatibilidad alta', 'Pasatiempos compartidos'],
-    profile: {
-      id: 'user_003',
-      nombre: 'Sofía Mendoza',
-      edad: 28,
-      fotos: ['https://randomuser.me/api/portraits/women/44.jpg'],
-      intereses: ['Running', 'Ciencia', 'Viajes'],
-      ubicacion: { ciudad: 'Puebla' },
-    },
-    liked: false,
-  },
-];
+interface CandidateProfile {
+  id: string;
+  nombre: string;
+  edad: number;
+  fotos: string[];
+  bio?: string;
+  intereses: string[];
+  ubicacion?: { ciudad?: string };
+}
+
+interface Candidate {
+  user_id: string;
+  score: number;
+  reasons: string[];
+  profile?: CandidateProfile;
+  liked?: boolean;
+}
 
 function scoreColor(score: number): string {
   if (score >= 75) return '#22c55e';
@@ -68,19 +44,97 @@ function scoreLabel(score: number): string {
   return 'Baja';
 }
 
+// Helper para obtener perfil del auth-service
+const AUTH_SERVICE_URL = process.env.EXPO_PUBLIC_AUTH_SERVICE_URL ?? 'http://192.168.1.80:8000';
+
+async function fetchProfile(userId: string): Promise<CandidateProfile | null> {
+  try {
+    const res = await fetch(`${AUTH_SERVICE_URL}/users/${userId}`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
 export default function ExploreScreen() {
+  const { user, accessToken } = useAuth();
   const router = useRouter();
-  const [candidates, setCandidates] = React.useState(STATIC_CANDIDATES);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleViewProfile = (userId: string) => {
-    const matchId = "6a0c8684227d3eaec344ba89";
-    router.push(`/profile/${userId}?matchId=${matchId}`);
+  const loadCandidates = useCallback(async () => {
+    if (!user?.id || !accessToken) return;
+    setLoading(true);
+    try {
+      const { matches } = await getPotentialMatches(user.id, 20, accessToken);
+      const enriched = await Promise.all(
+        matches.map(async (m) => {
+          const profile = await fetchProfile(m.user_id);
+          return { ...m, profile: profile || undefined };
+        })
+      );
+      setCandidates(enriched);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id, accessToken]);
+
+  useEffect(() => {
+    loadCandidates();
+  }, [loadCandidates]);
+
+  const handleLike = async (candidateId: string) => {
+    if (!user?.id || !accessToken) return;
+    // Optimistic update
+    setCandidates(prev =>
+      prev.map(c => c.user_id === candidateId ? { ...c, liked: true } : c)
+    );
+    try {
+      await createMatch(user.id, candidateId, accessToken);
+    } catch {
+      // revert on error
+      setCandidates(prev =>
+        prev.map(c => c.user_id === candidateId ? { ...c, liked: false } : c)
+      );
+    }
   };
 
-  const handleLike = (userId: string) => {
-  const matchId = "6a0c8684227d3eaec344ba89"; // el ID de tu match
-  router.push(`/profile/${userId}?matchId=${matchId}`);
+  const handleViewProfile = (userId: string, matchId?: string) => {
+    // Si tienes el matchId, pásalo; si no, intenta obtenerlo después (simplificado)
+    router.push(`/profile/${userId}?matchId=${matchId || ''}`);
   };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadCandidates();
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#ff2d78" />
+        <Text style={styles.stateText}>Buscando personas compatibles…</Text>
+      </View>
+    );
+  }
+
+  if (candidates.length === 0) {
+    return (
+      <View style={styles.center}>
+        <MaterialCommunityIcons name="account-search" size={56} color="#ccc" />
+        <Text style={styles.stateTitle}>Sin candidatos por ahora</Text>
+        <Text style={styles.stateText}>Actualiza tus preferencias más tarde</Text>
+        <Pressable style={styles.retryButton} onPress={loadCandidates}>
+          <Text style={styles.retryText}>Actualizar</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -89,6 +143,9 @@ export default function ExploreScreen() {
           <Text style={styles.headerTitle}>Descubrir</Text>
           <Text style={styles.headerSub}>{candidates.length} personas compatibles</Text>
         </View>
+        <Pressable onPress={loadCandidates} style={styles.refreshBtn}>
+          <MaterialCommunityIcons name="refresh" size={22} color="#ff2d78" />
+        </Pressable>
       </View>
 
       <FlatList
@@ -96,20 +153,22 @@ export default function ExploreScreen() {
         keyExtractor={(item) => item.user_id}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            {/* Área presionable para ver perfil */}
             <Pressable onPress={() => handleViewProfile(item.user_id)} style={{ gap: 12 }}>
               <View style={styles.cardTop}>
                 <View style={styles.avatarContainer}>
-                  <Image source={{ uri: item.profile.fotos[0] }} style={styles.avatar} />
+                  <Image
+                    source={{ uri: item.profile?.fotos?.[0] || 'https://randomuser.me/api/portraits/women/68.jpg' }}
+                    style={styles.avatar}
+                  />
                   <View style={[styles.scoreBadge, { backgroundColor: scoreColor(item.score) }]}>
                     <Text style={styles.scoreBadgeText}>{Math.round(item.score)}</Text>
                   </View>
                 </View>
                 <View style={styles.cardInfo}>
                   <Text style={styles.nameText}>
-                    {item.profile.nombre} <Text style={styles.ageText}>{item.profile.edad}</Text>
+                    {item.profile?.nombre ?? 'Usuario'} {item.profile?.edad ? <Text style={styles.ageText}>{item.profile.edad}</Text> : null}
                   </Text>
-                  {item.profile.ubicacion?.ciudad && (
+                  {item.profile?.ubicacion?.ciudad && (
                     <View style={styles.rowSmall}>
                       <MaterialCommunityIcons name="map-marker" size={13} color="#999" />
                       <Text style={styles.metaText}>{item.profile.ubicacion.ciudad}</Text>
@@ -126,8 +185,6 @@ export default function ExploreScreen() {
                   </View>
                 </View>
               </View>
-
-              {/* Razones */}
               <View style={styles.reasonsContainer}>
                 {item.reasons.slice(0, 3).map((r, i) => (
                   <View key={i} style={styles.reasonChip}>
@@ -136,18 +193,16 @@ export default function ExploreScreen() {
                   </View>
                 ))}
               </View>
-
-              {/* Intereses */}
-              <View style={styles.interestsRow}>
-                {item.profile.intereses.slice(0, 4).map((interes, i) => (
-                  <View key={i} style={styles.interesChip}>
-                    <Text style={styles.interesText}>{interes}</Text>
-                  </View>
-                ))}
-              </View>
+              {item.profile?.intereses && item.profile.intereses.length > 0 && (
+                <View style={styles.interestsRow}>
+                  {item.profile.intereses.slice(0, 4).map((interes, i) => (
+                    <View key={i} style={styles.interesChip}>
+                      <Text style={styles.interesText}>{interes}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
             </Pressable>
-
-            {/* Botón like */}
             <Pressable
               style={[styles.likeButton, item.liked && styles.likeButtonDone]}
               onPress={() => handleLike(item.user_id)}
@@ -156,7 +211,7 @@ export default function ExploreScreen() {
               <MaterialCommunityIcons
                 name={item.liked ? 'heart' : 'heart-outline'}
                 size={18}
-                color={item.liked ? '#ffffff' : '#ff2d78'}
+                color={item.liked ? '#fff' : '#ff2d78'}
               />
               <Text style={[styles.likeButtonText, item.liked && styles.likeButtonTextDone]}>
                 {item.liked ? 'Solicitud enviada' : 'Me interesa'}
@@ -165,7 +220,7 @@ export default function ExploreScreen() {
           </View>
         )}
         contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ff2d78" />}
       />
     </View>
   );
@@ -180,15 +235,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 56,
     paddingBottom: 16,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: '#111111', letterSpacing: -0.5 },
-  headerSub: { fontSize: 13, color: '#999999', marginTop: 2 },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: '#111' },
+  headerSub: { fontSize: 13, color: '#999', marginTop: 2 },
+  refreshBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff0f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   listContent: { padding: 16, gap: 14, paddingBottom: 32 },
   card: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
     borderRadius: 20,
     padding: 16,
     shadowColor: '#000',
@@ -211,14 +274,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#ffffff',
+    borderColor: '#fff',
   },
-  scoreBadgeText: { fontSize: 10, fontWeight: '800', color: '#ffffff' },
+  scoreBadgeText: { fontSize: 10, fontWeight: '800', color: '#fff' },
   cardInfo: { flex: 1, gap: 5 },
-  nameText: { fontSize: 18, fontWeight: '700', color: '#111111' },
-  ageText: { fontSize: 16, fontWeight: '400', color: '#555555' },
+  nameText: { fontSize: 18, fontWeight: '700', color: '#111' },
+  ageText: { fontSize: 16, fontWeight: '400', color: '#555' },
   rowSmall: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metaText: { fontSize: 12, color: '#999999' },
+  metaText: { fontSize: 12, color: '#999' },
   compatRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   compatDot: { width: 7, height: 7, borderRadius: 4 },
   compatLabel: { fontSize: 12, fontWeight: '600' },
@@ -226,7 +289,7 @@ const styles = StyleSheet.create({
   scoreBarFill: { height: 4, borderRadius: 2 },
   reasonsContainer: { gap: 5 },
   reasonChip: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  reasonText: { fontSize: 12, color: '#555555' },
+  reasonText: { fontSize: 12, color: '#555' },
   interestsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   interesChip: { backgroundColor: '#fff0f5', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   interesText: { fontSize: 11, color: '#ff2d78', fontWeight: '600' },
@@ -239,10 +302,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1.5,
     borderColor: '#ff2d78',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
     marginTop: 2,
   },
   likeButtonDone: { backgroundColor: '#ff2d78', borderColor: '#ff2d78' },
   likeButtonText: { fontSize: 14, fontWeight: '700', color: '#ff2d78' },
-  likeButtonTextDone: { color: '#ffffff' },
+  likeButtonTextDone: { color: '#fff' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40 },
+  stateTitle: { fontSize: 18, fontWeight: '700', color: '#111', textAlign: 'center' },
+  stateText: { fontSize: 14, color: '#999', textAlign: 'center' },
+  retryButton: { marginTop: 8, paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, backgroundColor: '#ff2d78' },
+  retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });

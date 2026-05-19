@@ -75,12 +75,16 @@ export default function HomeScreen() {
         <Text style={styles.logoutText}>Cerrar sesion</Text>
       </Pressable>
 
-      <Link href="/unlock-demo" style={{ marginTop: 20, color: '#ff2d78' }}>
-        Probar desbloqueo de foto
-      </Link>
 
       <Link href="/progressive-profile" style={styles.link}>
         Ver perfil con desbloqueo progresivo
+      </Link>
+
+      <Link
+        href="/profile/6a0ca0c93074208c646beed7?matchId=6a0ca5da8380a8ce8444ba89"
+        style={styles.link}
+      >
+        Ver perfil de TestMatch2 (match real)
       </Link>
     </ScrollView>
   </SafeAreaView>
