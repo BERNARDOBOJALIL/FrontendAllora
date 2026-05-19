@@ -1,20 +1,27 @@
-import { Link } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from "expo-linear-gradient";
+import { Link } from "expo-router";
+import {
+    Pressable,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from "react-native";
 
-import { useAuth } from '@/providers/auth-context';
+import { useAuth } from "@/providers/auth-context";
 
 const C = {
-  bg: '#FDFCFB',
-  white: '#ffffff',
-  ink: '#1A1A2E',
-  inkMid: 'rgba(26,26,46,0.62)',
-  rose: '#FF4E7A',
-  roseSoft: '#FFF4F7',
-  roseBorder: '#FFD1DD',
-  gold: '#FF9B50',
-  lav: '#8B5CF6',
-  teal: '#14B8A6',
+  bg: "#FDFCFB",
+  white: "#ffffff",
+  ink: "#1A1A2E",
+  inkMid: "rgba(26,26,46,0.62)",
+  rose: "#FF4E7A",
+  roseSoft: "#FFF4F7",
+  roseBorder: "#FFD1DD",
+  gold: "#FF9B50",
+  lav: "#8B5CF6",
+  teal: "#14B8A6",
 };
 
 export default function HomeScreen() {
@@ -22,21 +29,31 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
           <Text style={styles.kicker}>ALLORA</Text>
-          <Text style={styles.title}>Hola, {user?.nombre?.split(' ')[0] ?? 'tú'}</Text>
-          <Text style={styles.subtitle}>Tu punto de partida para conectar, conversar y cuidar tu perfil.</Text>
+          <Text style={styles.title}>
+            Hola, {user?.nombre?.split(" ")[0] ?? "tú"}
+          </Text>
+          <Text style={styles.subtitle}>
+            Tu punto de partida para conectar, conversar y cuidar tu perfil.
+          </Text>
         </View>
 
         <LinearGradient
-          colors={['#FF4E7A', '#FF9B50']}
+          colors={["#FF4E7A", "#FF9B50"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.heroCard}
         >
           <Text style={styles.heroTitle}>Completa tu perfil con Allora</Text>
-          <Text style={styles.heroText}>El agente te guía con preguntas simples y puedes editar todo manualmente.</Text>
+          <Text style={styles.heroText}>
+            El agente te guía con preguntas simples y puedes editar todo
+            manualmente.
+          </Text>
           <Link href="/profile-builder" asChild>
             <Pressable style={styles.heroButton}>
               <Text style={styles.heroButtonText}>Abrir guía</Text>
@@ -49,7 +66,9 @@ export default function HomeScreen() {
             <Pressable style={styles.quickCard}>
               <View style={[styles.quickDot, { backgroundColor: C.rose }]} />
               <Text style={styles.quickTitle}>Radar</Text>
-              <Text style={styles.quickText}>Encuentra personas y grupos cercanos.</Text>
+              <Text style={styles.quickText}>
+                Encuentra personas y grupos cercanos.
+              </Text>
             </Pressable>
           </Link>
 
@@ -65,24 +84,26 @@ export default function HomeScreen() {
             <Pressable style={styles.quickCard}>
               <View style={[styles.quickDot, { backgroundColor: C.lav }]} />
               <Text style={styles.quickTitle}>Mi perfil</Text>
-              <Text style={styles.quickText}>Revisa gustos, estilo y preferencias.</Text>
+              <Text style={styles.quickText}>
+                Revisa gustos, estilo y preferencias.
+              </Text>
             </Pressable>
           </Link>
         </View>
 
-      <Pressable style={styles.logoutButton} onPress={logout}>
-        <Text style={styles.logoutText}>Cerrar sesion</Text>
-      </Pressable>
+        <Pressable style={styles.logoutButton} onPress={logout}>
+          <Text style={styles.logoutText}>Cerrar sesion</Text>
+        </Pressable>
 
-      <Link href="/unlock-demo" style={{ marginTop: 20, color: '#ff2d78' }}>
-        Probar desbloqueo de foto
-      </Link>
+        <Link href="/unlock-demo" style={{ marginTop: 20, color: "#ff2d78" }}>
+          Probar desbloqueo de foto
+        </Link>
 
-      <Link href="/progressive-profile" style={styles.link}>
-        Ver perfil con desbloqueo progresivo
-      </Link>
-    </ScrollView>
-  </SafeAreaView>
+        <Link href="/progressive-profile" style={styles.link}>
+          Ver perfil con desbloqueo progresivo
+        </Link>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -103,13 +124,13 @@ const styles = StyleSheet.create({
   kicker: {
     color: C.rose,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 3,
   },
   title: {
     color: C.ink,
     fontSize: 34,
-    fontWeight: '900',
+    fontWeight: "900",
     lineHeight: 38,
   },
   subtitle: {
@@ -125,16 +146,16 @@ const styles = StyleSheet.create({
   heroTitle: {
     color: C.white,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   heroText: {
-    color: 'rgba(255,255,255,0.88)',
+    color: "rgba(255,255,255,0.88)",
     fontSize: 14,
     lineHeight: 20,
   },
   heroButton: {
     marginTop: 4,
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     minHeight: 42,
     borderRadius: 999,
     backgroundColor: C.white,
@@ -144,7 +165,7 @@ const styles = StyleSheet.create({
   heroButtonText: {
     color: C.rose,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   quickGrid: {
     gap: 10,
@@ -165,7 +186,7 @@ const styles = StyleSheet.create({
   quickTitle: {
     color: C.ink,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   quickText: {
     marginTop: 3,
@@ -183,14 +204,14 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: C.rose,
     fontSize: 12,
-    fontWeight: '900',
-    textTransform: 'uppercase',
+    fontWeight: "900",
+    textTransform: "uppercase",
     marginBottom: 8,
   },
   accountName: {
     color: C.ink,
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   accountMeta: {
     marginTop: 3,
@@ -204,12 +225,12 @@ const styles = StyleSheet.create({
     backgroundColor: C.white,
     borderWidth: 1,
     borderColor: C.roseBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   logoutText: {
     color: C.rose,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
   },
 });

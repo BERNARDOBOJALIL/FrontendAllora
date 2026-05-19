@@ -4,24 +4,29 @@ import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated,
-  Easing,
-  PanResponder,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
+    Animated,
+    Easing,
+    PanResponder,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    useWindowDimensions,
+    View,
 } from "react-native";
-
 
 import { useAuth } from "@/providers/auth-context";
 import {
-  LocationWebSocketService,
-  SocketStatus,
+    createSpace,
+    getNearbySpaces,
+    joinSpace,
+    leaveSpace,
+    type Space,
+} from "@/services/groups";
+import {
+    LocationWebSocketService,
+    SocketStatus,
 } from "@/services/location-websocket";
-import { getNearbySpaces, createSpace, joinSpace, leaveSpace, type Space } from "@/services/groups";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,7 +160,10 @@ function createSelfIdentityTokens(...values: unknown[]): Set<string> {
   );
 }
 
-function isSelfNearbyUser(nearbyUser: NearbyUser, selfTokens: Set<string>): boolean {
+function isSelfNearbyUser(
+  nearbyUser: NearbyUser,
+  selfTokens: Set<string>,
+): boolean {
   if (selfTokens.size === 0) return false;
 
   const nearbyTokens = [
@@ -191,12 +199,18 @@ function initials(name: string): string {
 
 function formatConnectionLabel(status: SocketStatus): string {
   switch (status) {
-    case "connected":    return "En vivo";
-    case "connecting":   return "Conectando…";
-    case "reconnecting": return "Reconectando…";
-    case "error":        return "Error de conexión";
-    case "disconnected": return "Sin señal";
-    default:             return "Iniciando…";
+    case "connected":
+      return "En vivo";
+    case "connecting":
+      return "Conectando…";
+    case "reconnecting":
+      return "Reconectando…";
+    case "error":
+      return "Error de conexión";
+    case "disconnected":
+      return "Sin señal";
+    default:
+      return "Iniciando…";
   }
 }
 
@@ -206,7 +220,8 @@ function readStringField(record: Record<string, unknown>, key: string): string {
 }
 
 function findDisplayName(value: unknown, depth = 0): string {
-  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 3) return "";
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 3)
+    return "";
 
   const record = value as Record<string, unknown>;
   const wsPrimaryNameKeys = [
@@ -243,12 +258,27 @@ function findDisplayName(value: unknown, depth = 0): string {
     if (direct) return direct;
   }
 
-  const firstName = readStringField(record, "first_name") || readStringField(record, "firstName") || readStringField(record, "firstname");
-  const lastName = readStringField(record, "last_name") || readStringField(record, "lastName") || readStringField(record, "lastname");
+  const firstName =
+    readStringField(record, "first_name") ||
+    readStringField(record, "firstName") ||
+    readStringField(record, "firstname");
+  const lastName =
+    readStringField(record, "last_name") ||
+    readStringField(record, "lastName") ||
+    readStringField(record, "lastname");
   const combined = `${firstName} ${lastName}`.trim();
   if (combined) return combined;
 
-  const nestedKeys = ["profile", "user", "account", "person", "identity", "data", "payload", "result"];
+  const nestedKeys = [
+    "profile",
+    "user",
+    "account",
+    "person",
+    "identity",
+    "data",
+    "payload",
+    "result",
+  ];
   for (const key of nestedKeys) {
     const nested = findDisplayName(record[key], depth + 1);
     if (nested) return nested;
@@ -269,7 +299,9 @@ function extractUserName(record: Record<string, unknown>): string {
   return "Persona";
 }
 
-function extractUserNameMap(record: Record<string, unknown>): Record<string, string> {
+function extractUserNameMap(
+  record: Record<string, unknown>,
+): Record<string, string> {
   const map: Record<string, string> = {};
   const candidateKeys = [
     "user_names",
@@ -286,7 +318,8 @@ function extractUserNameMap(record: Record<string, unknown>): Record<string, str
 
   for (const key of candidateKeys) {
     const candidate = record[key];
-    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+      continue;
 
     const entries = Object.entries(candidate as Record<string, unknown>);
     for (const [id, value] of entries) {
@@ -310,27 +343,36 @@ function normalizeUsers(input: unknown): NearbyUser[] {
   return normalizeUsersWithNameMap(input, {});
 }
 
-function normalizeUsersWithNameMap(input: unknown, userNameMap: Record<string, string>): NearbyUser[] {
+function normalizeUsersWithNameMap(
+  input: unknown,
+  userNameMap: Record<string, string>,
+): NearbyUser[] {
   if (!Array.isArray(input)) return [];
   const result: NearbyUser[] = [];
   input.forEach((item) => {
     if (typeof item === "string") {
       const mappedName = userNameMap[item]?.trim();
-      result.push({ id: item, name: mappedName || item, online: true, subtitle: "cerca" });
+      result.push({
+        id: item,
+        name: mappedName || item,
+        online: true,
+        subtitle: "cerca",
+      });
       return;
     }
     if (!item || typeof item !== "object") return;
     const r = item as Record<string, unknown>;
-    const id = String(
-      r.id ??
-      r.user_id ??
-      r.userId ??
-      r.client_id ??
-      r.clientId ??
-      r.uuid ??
-      r.key ??
-      "",
-    ).trim() || extractUserName(r);
+    const id =
+      String(
+        r.id ??
+          r.user_id ??
+          r.userId ??
+          r.client_id ??
+          r.clientId ??
+          r.uuid ??
+          r.key ??
+          "",
+      ).trim() || extractUserName(r);
     const extractedName = extractUserName(r);
     const mappedName = userNameMap[id]?.trim();
     const name = mappedName || extractedName;
@@ -338,14 +380,18 @@ function normalizeUsersWithNameMap(input: unknown, userNameMap: Record<string, s
       id,
       name,
       avatarUri:
-        typeof r.avatar_uri === "string" ? r.avatar_uri
-        : typeof r.avatar === "string" ? r.avatar
-        : undefined,
+        typeof r.avatar_uri === "string"
+          ? r.avatar_uri
+          : typeof r.avatar === "string"
+            ? r.avatar
+            : undefined,
       online: typeof r.online === "boolean" ? r.online : true,
       subtitle:
-        typeof r.subtitle === "string" ? r.subtitle
-        : typeof r.distance === "string" ? r.distance
-        : "cerca",
+        typeof r.subtitle === "string"
+          ? r.subtitle
+          : typeof r.distance === "string"
+            ? r.distance
+            : "cerca",
       distance: typeof r.distance === "string" ? r.distance : undefined,
       compatibility:
         typeof r.compatibility === "number" ? r.compatibility : undefined,
@@ -383,7 +429,8 @@ function normalizeUsersFromPayload(
   inheritedNameMap: Record<string, string> = {},
 ): NearbyUser[] {
   if (!input) return [];
-  if (Array.isArray(input)) return normalizeUsersWithNameMap(input, inheritedNameMap);
+  if (Array.isArray(input))
+    return normalizeUsersWithNameMap(input, inheritedNameMap);
   if (typeof input !== "object") return [];
 
   const r = input as Record<string, unknown>;
@@ -414,7 +461,9 @@ function normalizeUsersFromPayload(
     return normalizeUsersWithNameMap([r], mergedNameMap);
   }
 
-  const values = Object.values(r).filter((value) => value && typeof value === "object" && !Array.isArray(value));
+  const values = Object.values(r).filter(
+    (value) => value && typeof value === "object" && !Array.isArray(value),
+  );
   if (values.length > 0) {
     return normalizeUsersWithNameMap(values, mergedNameMap);
   }
@@ -430,7 +479,12 @@ function normalizePlaces(input: unknown): NearbyPlace[] {
   const result: NearbyPlace[] = [];
   input.forEach((item, i) => {
     if (typeof item === "string") {
-      result.push({ id: item, name: item, activeUsers: 0, subtitle: "lugar cercano" });
+      result.push({
+        id: item,
+        name: item,
+        activeUsers: 0,
+        subtitle: "lugar cercano",
+      });
       return;
     }
     if (!item || typeof item !== "object") return;
@@ -443,9 +497,11 @@ function normalizePlaces(input: unknown): NearbyPlace[] {
       name,
       activeUsers: Number(r.active_users ?? r.users_count ?? r.count ?? 0) || 0,
       photoUri:
-        typeof r.photo_uri === "string" ? r.photo_uri
-        : typeof r.image === "string" ? r.image
-        : undefined,
+        typeof r.photo_uri === "string"
+          ? r.photo_uri
+          : typeof r.image === "string"
+            ? r.image
+            : undefined,
       subtitle: typeof r.subtitle === "string" ? r.subtitle : "lugar cercano",
     });
   });
@@ -476,7 +532,9 @@ function normalizePlacesFromPayload(input: unknown): NearbyPlace[] {
     if (normalized.length > 0) return normalized;
   }
 
-  const values = Object.values(r).filter((value) => value && typeof value === "object" && !Array.isArray(value));
+  const values = Object.values(r).filter(
+    (value) => value && typeof value === "object" && !Array.isArray(value),
+  );
   if (values.length > 0) {
     return normalizePlaces(values);
   }
@@ -517,14 +575,20 @@ function buildBubbleDescriptors(
       subtitle: `${place.activeUsers} aquí`,
       photoUri: place.photoUri,
       size: clamp(128 - i * 6, 100, 136),
-      x: cachedPosition?.x ?? clamp(
-        cx + Math.cos(angle) * rx + seededOffset(seed, 20) - 60,
-        12, sw - 148,
-      ),
-      y: cachedPosition?.y ?? clamp(
-        cy + Math.sin(angle) * ry + seededOffset(seed + 1, 18) - 60,
-        64, sh - 180,
-      ),
+      x:
+        cachedPosition?.x ??
+        clamp(
+          cx + Math.cos(angle) * rx + seededOffset(seed, 20) - 60,
+          12,
+          sw - 148,
+        ),
+      y:
+        cachedPosition?.y ??
+        clamp(
+          cy + Math.sin(angle) * ry + seededOffset(seed + 1, 18) - 60,
+          64,
+          sh - 180,
+        ),
       accent: theme.accent,
       tint: theme.tint,
       border: theme.border,
@@ -549,14 +613,20 @@ function buildBubbleDescriptors(
       subtitle: user.subtitle ?? (user.online ? "en línea" : "ausente"),
       avatarUri: user.avatarUri,
       size: isSelected ? 100 : clamp(82 - i * 2, 60, 84),
-      x: cachedPosition?.x ?? clamp(
-        cx + Math.cos(angle) * rx + seededOffset(seed, 26) - 41,
-        10, sw - 110,
-      ),
-      y: cachedPosition?.y ?? clamp(
-        cy + Math.sin(angle) * ry + seededOffset(seed + 2, 22) - 41,
-        52, sh - 130,
-      ),
+      x:
+        cachedPosition?.x ??
+        clamp(
+          cx + Math.cos(angle) * rx + seededOffset(seed, 26) - 41,
+          10,
+          sw - 110,
+        ),
+      y:
+        cachedPosition?.y ??
+        clamp(
+          cy + Math.sin(angle) * ry + seededOffset(seed + 2, 22) - 41,
+          52,
+          sh - 130,
+        ),
       accent: theme.accent,
       tint: theme.tint,
       border: theme.border,
@@ -585,7 +655,10 @@ function buildBubbleDescriptors(
     isActive: true,
   };
 
-  positionCache.set(selfDescriptor.id, { x: selfDescriptor.x, y: selfDescriptor.y });
+  positionCache.set(selfDescriptor.id, {
+    x: selfDescriptor.x,
+    y: selfDescriptor.y,
+  });
   return [...placeDescriptors, selfDescriptor, ...userDescriptors];
 }
 
@@ -597,15 +670,27 @@ function createBubbleModel(d: BubbleDescriptor): BubbleModel {
   const motion = new Animated.Value(0);
 
   Animated.parallel([
-    Animated.spring(opacity, { toValue: 1, tension: 60, friction: 10, useNativeDriver: true }),
-    Animated.spring(scale,   { toValue: 1, tension: 70, friction: 8,  useNativeDriver: true }),
+    Animated.spring(opacity, {
+      toValue: 1,
+      tension: 60,
+      friction: 10,
+      useNativeDriver: true,
+    }),
+    Animated.spring(scale, {
+      toValue: 1,
+      tension: 70,
+      friction: 8,
+      useNativeDriver: true,
+    }),
   ]).start();
 
   motion.setValue(0);
   return { ...d, opacity, scale, motion };
 }
 
-function useFloatingBubbleModels(descriptors: BubbleDescriptor[]): BubbleModel[] {
+function useFloatingBubbleModels(
+  descriptors: BubbleDescriptor[],
+): BubbleModel[] {
   const ref = useRef(new Map<string, BubbleModel>());
   const [models, setModels] = useState<BubbleModel[]>([]);
 
@@ -615,16 +700,36 @@ function useFloatingBubbleModels(descriptors: BubbleDescriptor[]): BubbleModel[]
       const ex = ref.current.get(d.id);
       if (ex) {
         Object.assign(ex, {
-          title: d.title, subtitle: d.subtitle,
-          avatarUri: d.avatarUri, photoUri: d.photoUri,
-          size: d.size, accent: d.accent, tint: d.tint, border: d.border,
-          online: d.online, kind: d.kind, isActive: d.isActive,
-          x: d.x, y: d.y, leaving: false,
-          distance: d.distance, compatibility: d.compatibility,
+          title: d.title,
+          subtitle: d.subtitle,
+          avatarUri: d.avatarUri,
+          photoUri: d.photoUri,
+          size: d.size,
+          accent: d.accent,
+          tint: d.tint,
+          border: d.border,
+          online: d.online,
+          kind: d.kind,
+          isActive: d.isActive,
+          x: d.x,
+          y: d.y,
+          leaving: false,
+          distance: d.distance,
+          compatibility: d.compatibility,
         });
         Animated.parallel([
-          Animated.spring(ex.scale,   { toValue: 1, tension: 85, friction: 8, useNativeDriver: true }),
-          Animated.spring(ex.opacity, { toValue: 1, tension: 85, friction: 8, useNativeDriver: true }),
+          Animated.spring(ex.scale, {
+            toValue: 1,
+            tension: 85,
+            friction: 8,
+            useNativeDriver: true,
+          }),
+          Animated.spring(ex.opacity, {
+            toValue: 1,
+            tension: 85,
+            friction: 8,
+            useNativeDriver: true,
+          }),
         ]).start();
         return;
       }
@@ -636,8 +741,16 @@ function useFloatingBubbleModels(descriptors: BubbleDescriptor[]): BubbleModel[]
       if (!m || m.leaving) return;
       m.leaving = true;
       Animated.parallel([
-        Animated.timing(m.opacity, { toValue: 0, duration: 280, useNativeDriver: true }),
-        Animated.timing(m.scale,   { toValue: 0.5, duration: 280, useNativeDriver: true }),
+        Animated.timing(m.opacity, {
+          toValue: 0,
+          duration: 280,
+          useNativeDriver: true,
+        }),
+        Animated.timing(m.scale, {
+          toValue: 0.5,
+          duration: 280,
+          useNativeDriver: true,
+        }),
       ]).start(() => {
         ref.current.delete(id);
         setModels(Array.from(ref.current.values()));
@@ -651,7 +764,15 @@ function useFloatingBubbleModels(descriptors: BubbleDescriptor[]): BubbleModel[]
 
 // ─── Sonar ring ───────────────────────────────────────────────────────────────
 
-function SonarRing({ color, size, delay = 0 }: { color: string; size: number; delay?: number }) {
+function SonarRing({
+  color,
+  size,
+  delay = 0,
+}: {
+  color: string;
+  size: number;
+  delay?: number;
+}) {
   const sc = useRef(new Animated.Value(0.9)).current;
   const op = useRef(new Animated.Value(0.7)).current;
 
@@ -659,12 +780,18 @@ function SonarRing({ color, size, delay = 0 }: { color: string; size: number; de
     const anim = Animated.loop(
       Animated.parallel([
         Animated.timing(sc, {
-          toValue: 2.4, duration: 2600, delay,
-          easing: Easing.out(Easing.quad), useNativeDriver: true,
+          toValue: 2.4,
+          duration: 2600,
+          delay,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
         }),
         Animated.timing(op, {
-          toValue: 0, duration: 2600, delay,
-          easing: Easing.out(Easing.quad), useNativeDriver: true,
+          toValue: 0,
+          duration: 2600,
+          delay,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
         }),
       ]),
     );
@@ -677,10 +804,13 @@ function SonarRing({ color, size, delay = 0 }: { color: string; size: number; de
       pointerEvents="none"
       style={{
         position: "absolute",
-        width: size, height: size,
+        width: size,
+        height: size,
         borderRadius: size / 2,
-        borderWidth: 1.5, borderColor: color,
-        opacity: op, transform: [{ scale: sc }],
+        borderWidth: 1.5,
+        borderColor: color,
+        opacity: op,
+        transform: [{ scale: sc }],
       }}
     />
   );
@@ -698,7 +828,8 @@ function RadarRings({ cx, cy }: { cx: number; cy: number }) {
           pointerEvents="none"
           style={{
             position: "absolute",
-            width: r, height: r,
+            width: r,
+            height: r,
             borderRadius: r / 2,
             borderWidth: 0.5,
             borderColor: "rgba(26,26,46,0.06)",
@@ -715,17 +846,31 @@ function RadarRings({ cx, cy }: { cx: number; cy: number }) {
 // ─── Heart animation ──────────────────────────────────────────────────────────
 
 function HeartBurst({ onDone }: { onDone: () => void }) {
-  const y   = useRef(new Animated.Value(0)).current;
-  const op  = useRef(new Animated.Value(1)).current;
-  const sc  = useRef(new Animated.Value(0)).current;
+  const y = useRef(new Animated.Value(0)).current;
+  const op = useRef(new Animated.Value(1)).current;
+  const sc = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.spring(sc,   { toValue: 1.4, tension: 120, friction: 5, useNativeDriver: true }),
-      Animated.timing(y,    { toValue: -44, duration: 600, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.spring(sc, {
+        toValue: 1.4,
+        tension: 120,
+        friction: 5,
+        useNativeDriver: true,
+      }),
+      Animated.timing(y, {
+        toValue: -44,
+        duration: 600,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
       Animated.sequence([
         Animated.delay(300),
-        Animated.timing(op, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(op, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
       ]),
     ]).start(onDone);
   }, []);
@@ -734,10 +879,14 @@ function HeartBurst({ onDone }: { onDone: () => void }) {
     <Animated.View
       pointerEvents="none"
       style={{
-        position: "absolute", alignSelf: "center",
-        width: 26, height: 26, borderRadius: 13,
+        position: "absolute",
+        alignSelf: "center",
+        width: 26,
+        height: 26,
+        borderRadius: 13,
         backgroundColor: C.rose,
-        opacity: op, transform: [{ translateY: y }, { scale: sc }],
+        opacity: op,
+        transform: [{ translateY: y }, { scale: sc }],
       }}
     />
   );
@@ -760,19 +909,24 @@ function BubbleItem({
   useEffect(() => {
     Animated.spring(expanded, {
       toValue: isExpanded ? 1 : 0,
-      tension: 90, friction: 9, useNativeDriver: true,
+      tension: 90,
+      friction: 9,
+      useNativeDriver: true,
     }).start();
   }, [expanded, isExpanded]);
 
   const breathe = bubble.motion.interpolate({
-    inputRange: [0, 0.5, 1], outputRange: [1, 1.032, 1],
+    inputRange: [0, 0.5, 1],
+    outputRange: [1, 1.032, 1],
   });
   const tapScale = expanded.interpolate({
-    inputRange: [0, 1], outputRange: [1, 1.14],
+    inputRange: [0, 1],
+    outputRange: [1, 1.14],
   });
   const tagOpacity = expanded;
   const tagTranslate = expanded.interpolate({
-    inputRange: [0, 1], outputRange: [6, 0],
+    inputRange: [0, 1],
+    outputRange: [6, 0],
   });
 
   const handlePress = () => {
@@ -785,11 +939,10 @@ function BubbleItem({
       style={[
         styles.bubbleLayer,
         {
-          left: bubble.x, top: bubble.y,
+          left: bubble.x,
+          top: bubble.y,
           opacity: bubble.opacity,
-          transform: [
-            { scale: Animated.multiply(bubble.scale, breathe) },
-          ],
+          transform: [{ scale: Animated.multiply(bubble.scale, breathe) }],
         },
       ]}
     >
@@ -801,7 +954,8 @@ function BubbleItem({
             styles.bubbleShell,
             bubble.kind === "user" && styles.userBubbleShell,
             {
-              width: bubble.size, height: bubble.size,
+              width: bubble.size,
+              height: bubble.size,
               borderRadius: bubble.size / 2,
               backgroundColor: bubble.tint,
               borderColor: bubble.border,
@@ -809,9 +963,13 @@ function BubbleItem({
             },
           ]}
         >
-          {bubble.kind === "user"  ? <UserBubble  bubble={bubble} /> :
-           bubble.kind === "place" ? <PlaceBubble bubble={bubble} /> :
-           <SelfBubble bubble={bubble} />}
+          {bubble.kind === "user" ? (
+            <UserBubble bubble={bubble} />
+          ) : bubble.kind === "place" ? (
+            <PlaceBubble bubble={bubble} />
+          ) : (
+            <SelfBubble bubble={bubble} />
+          )}
         </Animated.View>
       </Pressable>
 
@@ -842,9 +1000,13 @@ function UserBubble({ bubble }: { bubble: BubbleModel }) {
   const shortName = bubble.title.trim().split(/\s+/)[0] || bubble.title;
   return (
     <View style={styles.userInner}>
-      <View style={[styles.userOuterHalo, { borderColor: `${bubble.accent}30` }]} />
+      <View
+        style={[styles.userOuterHalo, { borderColor: `${bubble.accent}30` }]}
+      />
       <View style={styles.userAvatarClip}>
-        <View style={[styles.userGlowRing, { borderColor: `${bubble.accent}44` }]} />
+        <View
+          style={[styles.userGlowRing, { borderColor: `${bubble.accent}44` }]}
+        />
         {bubble.avatarUri ? (
           <Image
             source={{ uri: bubble.avatarUri }}
@@ -865,7 +1027,11 @@ function UserBubble({ bubble }: { bubble: BubbleModel }) {
         )}
 
         <LinearGradient
-          colors={["rgba(255,255,255,0.24)", "rgba(26,26,46,0.00)", "rgba(26,26,46,0.18)"]}
+          colors={[
+            "rgba(255,255,255,0.24)",
+            "rgba(26,26,46,0.00)",
+            "rgba(26,26,46,0.18)",
+          ]}
           locations={[0, 0.55, 1]}
           style={styles.userShadeMask}
         />
@@ -873,7 +1039,12 @@ function UserBubble({ bubble }: { bubble: BubbleModel }) {
       </View>
 
       {bubble.distance && (
-        <View style={[styles.userMiniTag, { backgroundColor: `${bubble.accent}E6` }]}>
+        <View
+          style={[
+            styles.userMiniTag,
+            { backgroundColor: `${bubble.accent}E6` },
+          ]}
+        >
           <Text style={styles.userMiniTagText}>{bubble.distance}</Text>
         </View>
       )}
@@ -902,7 +1073,10 @@ function PlaceBubble({ bubble }: { bubble: BubbleModel }) {
       {bubble.photoUri && (
         <Image
           source={{ uri: bubble.photoUri }}
-          style={[StyleSheet.absoluteFillObject, { borderRadius: bubble.size / 2, opacity: 0.18 }]}
+          style={[
+            StyleSheet.absoluteFillObject,
+            { borderRadius: bubble.size / 2, opacity: 0.18 },
+          ]}
           contentFit="cover"
         />
       )}
@@ -910,7 +1084,10 @@ function PlaceBubble({ bubble }: { bubble: BubbleModel }) {
         <Text numberOfLines={1} style={styles.placeName}>
           {bubble.title}
         </Text>
-        <Text numberOfLines={1} style={[styles.placeCount, { color: bubble.accent }]}>
+        <Text
+          numberOfLines={1}
+          style={[styles.placeCount, { color: bubble.accent }]}
+        >
           {bubble.subtitle}
         </Text>
       </View>
@@ -942,16 +1119,25 @@ export default function LocationScreen() {
   const { user, accessToken } = useAuth();
   const router = useRouter();
 
-  const [permissionState, setPermissionState] = useState<PermissionState>("pending");
+  const [permissionState, setPermissionState] =
+    useState<PermissionState>("pending");
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<SocketStatus>("idle");
+  const [currentCoords, setCurrentCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [connectionStatus, setConnectionStatus] =
+    useState<SocketStatus>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
   const [nearbySpaces, setNearbySpaces] = useState<Space[]>([]);
-  const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>("self-location");
-  const [connectivityNote, setConnectivityNote] = useState("Solicitando permiso…");
+  const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>(
+    "self-location",
+  );
+  const [connectivityNote, setConnectivityNote] = useState(
+    "Solicitando permiso…",
+  );
   const [matchCount, setMatchCount] = useState(0);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [isLoadingSpaces, setIsLoadingSpaces] = useState(false);
@@ -960,8 +1146,8 @@ export default function LocationScreen() {
 
   // ─── Pan / drag del stage ──────────────────────────────────────────────────
   const panOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
-  const panLast   = useRef({ x: 0, y: 0 });
-  const panVel    = useRef({ x: 0, y: 0 });
+  const panLast = useRef({ x: 0, y: 0 });
+  const panVel = useRef({ x: 0, y: 0 });
   const isDragging = useRef(false);
 
   const panResponder = useRef(
@@ -1001,44 +1187,62 @@ export default function LocationScreen() {
   const wsServiceRef = useRef<LocationWebSocketService | null>(null);
   const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const coordsRef = useRef<{ lat: number; lng: number } | null>(null);
-  const clientIdRef = useRef(user?.id ?? `mobile-${Math.floor(Math.random() * 9000) + 1000}`);
+  const clientIdRef = useRef(
+    user?.id ?? `mobile-${Math.floor(Math.random() * 9000) + 1000}`,
+  );
   const userNameRef = useRef(user?.nombre?.trim() ?? "");
   const lastNearbySpacesFetchRef = useRef(0);
-  const nearbyUserCacheRef = useRef(new Map<string, { user: NearbyUser; lastSeen: number }>());
-  const bubblePositionCacheRef = useRef(new Map<string, { x: number; y: number }>());
+  const nearbyUserCacheRef = useRef(
+    new Map<string, { user: NearbyUser; lastSeen: number }>(),
+  );
+  const bubblePositionCacheRef = useRef(
+    new Map<string, { x: number; y: number }>(),
+  );
 
-  useEffect(() => { if (user?.id) clientIdRef.current = user.id; }, [user?.id]);
-  useEffect(() => { userNameRef.current = user?.nombre?.trim() ?? ""; }, [user?.nombre]);
+  useEffect(() => {
+    if (user?.id) clientIdRef.current = user.id;
+  }, [user?.id]);
+  useEffect(() => {
+    userNameRef.current = user?.nombre?.trim() ?? "";
+  }, [user?.nombre]);
 
-  const fetchNearbySpaces = useCallback(async (options: { force?: boolean } = {}) => {
-    const coords = coordsRef.current;
-    if (!coords) return;
+  const fetchNearbySpaces = useCallback(
+    async (options: { force?: boolean } = {}) => {
+      const coords = coordsRef.current;
+      if (!coords) return;
 
-    const now = Date.now();
-    if (!options.force && now - lastNearbySpacesFetchRef.current < 15000) {
-      return;
-    }
+      const now = Date.now();
+      if (!options.force && now - lastNearbySpacesFetchRef.current < 15000) {
+        return;
+      }
 
-    lastNearbySpacesFetchRef.current = now;
-    setIsLoadingSpaces(true);
-    try {
-      const result = await getNearbySpaces(
-        coords.lat,
-        coords.lng,
-        5,
-        accessToken ?? undefined,
-        user?.id,
-      );
-      setNearbySpaces(result.spaces || []);
-    } catch (err) {
-      console.warn('Error fetching nearby spaces:', err);
-    } finally {
-      setIsLoadingSpaces(false);
-    }
-  }, [accessToken, user?.id]);
+      lastNearbySpacesFetchRef.current = now;
+      setIsLoadingSpaces(true);
+      try {
+        const result = await getNearbySpaces(
+          coords.lat,
+          coords.lng,
+          5,
+          accessToken ?? undefined,
+          user?.id,
+        );
+        setNearbySpaces(result.spaces || []);
+      } catch (err) {
+        console.warn("Error fetching nearby spaces:", err);
+      } finally {
+        setIsLoadingSpaces(false);
+      }
+    },
+    [accessToken, user?.id],
+  );
 
   const handleCreateSpace = useCallback(
-    async (name: string, description: string, photoBase64: string, radiusKm: number) => {
+    async (
+      name: string,
+      description: string,
+      photoBase64: string,
+      radiusKm: number,
+    ) => {
       const coords = coordsRef.current;
       if (!coords || !user?.id || !accessToken) return;
       try {
@@ -1059,8 +1263,10 @@ export default function LocationScreen() {
         setUserSpaces((prev) => [...prev, newSpace.space_id]);
         setShowCreateGroupModal(false);
       } catch (err) {
-        console.error('Error creating space:', err);
-        setErrorMessage(err instanceof Error ? err.message : 'Error creando grupo');
+        console.error("Error creating space:", err);
+        setErrorMessage(
+          err instanceof Error ? err.message : "Error creando grupo",
+        );
       }
     },
     [accessToken, user?.id],
@@ -1077,17 +1283,23 @@ export default function LocationScreen() {
           accessToken,
           user.id,
         );
-        setUserSpaces((prev) => (prev.includes(spaceId) ? prev : [...prev, spaceId]));
+        setUserSpaces((prev) =>
+          prev.includes(spaceId) ? prev : [...prev, spaceId],
+        );
         setNearbySpaces((prev) =>
-          prev.map((space) => (space.space_id === spaceId ? updatedSpace : space)),
+          prev.map((space) =>
+            space.space_id === spaceId ? updatedSpace : space,
+          ),
         );
         setSelectedSpace((current) =>
           current?.space_id === spaceId ? updatedSpace : current,
         );
         await fetchNearbySpaces({ force: true });
       } catch (err) {
-        console.error('Error joining space:', err);
-        setErrorMessage(err instanceof Error ? err.message : 'Error uniéndose al grupo');
+        console.error("Error joining space:", err);
+        setErrorMessage(
+          err instanceof Error ? err.message : "Error uniéndose al grupo",
+        );
       }
     },
     [accessToken, fetchNearbySpaces, user?.id],
@@ -1104,7 +1316,9 @@ export default function LocationScreen() {
             space.space_id === spaceId
               ? {
                   ...space,
-                  members: space.members?.filter((memberId) => memberId !== user.id) ?? [],
+                  members:
+                    space.members?.filter((memberId) => memberId !== user.id) ??
+                    [],
                 }
               : space,
           ),
@@ -1113,14 +1327,18 @@ export default function LocationScreen() {
           current?.space_id === spaceId
             ? {
                 ...current,
-                members: current.members?.filter((memberId) => memberId !== user.id) ?? [],
+                members:
+                  current.members?.filter((memberId) => memberId !== user.id) ??
+                  [],
               }
             : current,
         );
         await fetchNearbySpaces({ force: true });
       } catch (err) {
-        console.error('Error leaving space:', err);
-        setErrorMessage(err instanceof Error ? err.message : 'Error saliendo del grupo');
+        console.error("Error leaving space:", err);
+        setErrorMessage(
+          err instanceof Error ? err.message : "Error saliendo del grupo",
+        );
       }
     },
     [accessToken, fetchNearbySpaces, user?.id],
@@ -1153,77 +1371,89 @@ export default function LocationScreen() {
   }, []);
 
   const stopSendLoop = useCallback(() => {
-    if (sendIntervalRef.current) { clearInterval(sendIntervalRef.current); sendIntervalRef.current = null; }
+    if (sendIntervalRef.current) {
+      clearInterval(sendIntervalRef.current);
+      sendIntervalRef.current = null;
+    }
   }, []);
 
-  const processBroadcast = useCallback((data: unknown, raw: string) => {
-    if (data && typeof data === "object" && !Array.isArray(data)) {
-      const r = data as Record<string, unknown>;
-      let users = normalizeUsersFromPayload(r);
+  const processBroadcast = useCallback(
+    (data: unknown, raw: string) => {
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        const r = data as Record<string, unknown>;
+        let users = normalizeUsersFromPayload(r);
 
-      if (users.length === 0 && typeof r.user_id === "string") {
-        const directName = typeof r.user_name === "string" ? r.user_name.trim() : "";
-        users = [{
-          id: r.user_id,
-          name: directName || "Persona",
-          online: true,
-          subtitle: "cerca",
-        }];
-      }
-
-      const selfTokens = createSelfIdentityTokens(
-        user?.id,
-        user?.nombre,
-        user?.email,
-        clientIdRef.current,
-        userNameRef.current,
-      );
-
-      users = users.filter((u) => !isSelfNearbyUser(u, selfTokens));
-      nearbyUserCacheRef.current.forEach((entry, cacheId) => {
-        const cachedAsNearbyUser = {
-          ...entry.user,
-          id: entry.user.id || cacheId,
-        };
-        if (isSelfNearbyUser(cachedAsNearbyUser, selfTokens)) {
-          nearbyUserCacheRef.current.delete(cacheId);
+        if (users.length === 0 && typeof r.user_id === "string") {
+          const directName =
+            typeof r.user_name === "string" ? r.user_name.trim() : "";
+          users = [
+            {
+              id: r.user_id,
+              name: directName || "Persona",
+              online: true,
+              subtitle: "cerca",
+            },
+          ];
         }
-      });
 
-      const now = Date.now();
-      for (const userItem of users) {
-        const current = nearbyUserCacheRef.current.get(userItem.id);
-        const incomingName = (userItem.name ?? "").trim();
-        const hasMeaningfulIncomingName = incomingName.length > 0 && incomingName !== userItem.id && incomingName !== "Persona";
-        const existingName = (current?.user.name ?? "").trim();
-        const resolvedName = hasMeaningfulIncomingName
-          ? incomingName
-          : existingName || incomingName || "Persona";
+        const selfTokens = createSelfIdentityTokens(
+          user?.id,
+          user?.nombre,
+          user?.email,
+          clientIdRef.current,
+          userNameRef.current,
+        );
 
-        nearbyUserCacheRef.current.set(userItem.id, {
-          user: {
-            ...current?.user,
-            ...userItem,
-            name: resolvedName,
-          },
-          lastSeen: now,
+        users = users.filter((u) => !isSelfNearbyUser(u, selfTokens));
+        nearbyUserCacheRef.current.forEach((entry, cacheId) => {
+          const cachedAsNearbyUser = {
+            ...entry.user,
+            id: entry.user.id || cacheId,
+          };
+          if (isSelfNearbyUser(cachedAsNearbyUser, selfTokens)) {
+            nearbyUserCacheRef.current.delete(cacheId);
+          }
         });
-      }
 
-      const freshUsers = Array.from(nearbyUserCacheRef.current.values())
-        .filter((entry) => now - entry.lastSeen <= 25000)
-        .filter((entry) => !isSelfNearbyUser(entry.user, selfTokens))
-        .map((entry) => entry.user);
+        const now = Date.now();
+        for (const userItem of users) {
+          const current = nearbyUserCacheRef.current.get(userItem.id);
+          const incomingName = (userItem.name ?? "").trim();
+          const hasMeaningfulIncomingName =
+            incomingName.length > 0 &&
+            incomingName !== userItem.id &&
+            incomingName !== "Persona";
+          const existingName = (current?.user.name ?? "").trim();
+          const resolvedName = hasMeaningfulIncomingName
+            ? incomingName
+            : existingName || incomingName || "Persona";
 
-      nearbyUserCacheRef.current.forEach((entry, id) => {
-        if (now - entry.lastSeen > 25000) {
-          nearbyUserCacheRef.current.delete(id);
+          nearbyUserCacheRef.current.set(userItem.id, {
+            user: {
+              ...current?.user,
+              ...userItem,
+              name: resolvedName,
+            },
+            lastSeen: now,
+          });
         }
-      });
 
-      setNearbyUsers(freshUsers);
-    }
-  }, [user?.email, user?.id, user?.nombre]);
+        const freshUsers = Array.from(nearbyUserCacheRef.current.values())
+          .filter((entry) => now - entry.lastSeen <= 25000)
+          .filter((entry) => !isSelfNearbyUser(entry.user, selfTokens))
+          .map((entry) => entry.user);
+
+        nearbyUserCacheRef.current.forEach((entry, id) => {
+          if (now - entry.lastSeen > 25000) {
+            nearbyUserCacheRef.current.delete(id);
+          }
+        });
+
+        setNearbyUsers(freshUsers);
+      }
+    },
+    [user?.email, user?.id, user?.nombre],
+  );
 
   const ensureSocketService = useCallback(() => {
     if (wsServiceRef.current) return wsServiceRef.current;
@@ -1232,9 +1462,16 @@ export default function LocationScreen() {
         setConnectionStatus(status);
         setConnectivityNote(formatConnectionLabel(status));
       },
-      onClose: (event) => { setConnectivityNote(`Desconectado (${event.code})`); },
-      onError: (event) => { setErrorMessage(event.message); setConnectivityNote(event.message); },
-      onMessage: (data, raw) => { processBroadcast(data, raw); },
+      onClose: (event) => {
+        setConnectivityNote(`Desconectado (${event.code})`);
+      },
+      onError: (event) => {
+        setErrorMessage(event.message);
+        setConnectivityNote(event.message);
+      },
+      onMessage: (data, raw) => {
+        processBroadcast(data, raw);
+      },
     });
     return wsServiceRef.current;
   }, [processBroadcast]);
@@ -1245,7 +1482,8 @@ export default function LocationScreen() {
     if (!service || !coords) return;
     const currentUserName = userNameRef.current;
     service.sendLocation({
-      lat: coords.lat, lng: coords.lng,
+      lat: coords.lat,
+      lng: coords.lng,
       timestamp: new Date().toISOString(),
       clientId: clientIdRef.current,
       user_id: clientIdRef.current,
@@ -1263,18 +1501,26 @@ export default function LocationScreen() {
       const granted = permission.status === "granted";
       setPermissionState(granted ? "granted" : "denied");
       if (!granted) {
-        setLocationError("Se necesita acceso a la ubicación para mostrar personas cercanas.");
+        setLocationError(
+          "Se necesita acceso a la ubicación para mostrar personas cercanas.",
+        );
         setConnectivityNote("Permiso denegado");
         return;
       }
       setConnectivityNote("Buscando personas y grupos…");
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
       const fc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       coordsRef.current = fc;
       setCurrentCoords(fc);
       stopLocationWatcher();
       locationWatcherRef.current = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 2000, distanceInterval: 1 },
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 2000,
+          distanceInterval: 1,
+        },
         (p) => {
           const nc = { lat: p.coords.latitude, lng: p.coords.longitude };
           coordsRef.current = nc;
@@ -1282,7 +1528,8 @@ export default function LocationScreen() {
         },
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al iniciar ubicación.";
+      const msg =
+        err instanceof Error ? err.message : "Error al iniciar ubicación.";
       setLocationError(msg);
       setConnectivityNote(msg);
     } finally {
@@ -1292,7 +1539,11 @@ export default function LocationScreen() {
 
   useEffect(() => {
     requestPermissionAndTrack();
-    return () => { stopSendLoop(); stopLocationWatcher(); wsServiceRef.current?.disconnect(); };
+    return () => {
+      stopSendLoop();
+      stopLocationWatcher();
+      wsServiceRef.current?.disconnect();
+    };
   }, [requestPermissionAndTrack, stopLocationWatcher, stopSendLoop]);
 
   useEffect(() => {
@@ -1302,18 +1553,32 @@ export default function LocationScreen() {
   }, [currentCoords, user?.id, fetchNearbySpaces]);
 
   useEffect(() => {
-    if (permissionState !== "granted") { wsServiceRef.current?.disconnect(); stopSendLoop(); return; }
+    if (permissionState !== "granted") {
+      wsServiceRef.current?.disconnect();
+      stopSendLoop();
+      return;
+    }
     const s = ensureSocketService();
     s.connect(AUTO_WS_URL, user?.id ?? clientIdRef.current);
-    return () => { s.disconnect(); };
+    return () => {
+      s.disconnect();
+    };
   }, [ensureSocketService, permissionState, stopSendLoop, user?.id]);
 
   useEffect(() => {
-    if (connectionStatus !== "connected") { stopSendLoop(); return; }
+    if (connectionStatus !== "connected") {
+      stopSendLoop();
+      return;
+    }
     sendCurrentLocation();
     stopSendLoop();
-    sendIntervalRef.current = setInterval(sendCurrentLocation, SEND_INTERVAL_MS);
-    return () => { stopSendLoop(); };
+    sendIntervalRef.current = setInterval(
+      sendCurrentLocation,
+      SEND_INTERVAL_MS,
+    );
+    return () => {
+      stopSendLoop();
+    };
   }, [connectionStatus, sendCurrentLocation, stopSendLoop]);
 
   const visibleNearbyUsers = useMemo(() => {
@@ -1325,44 +1590,55 @@ export default function LocationScreen() {
       userNameRef.current,
     );
 
-    return nearbyUsers.filter((nearbyUser) => !isSelfNearbyUser(nearbyUser, selfTokens));
+    return nearbyUsers.filter(
+      (nearbyUser) => !isSelfNearbyUser(nearbyUser, selfTokens),
+    );
   }, [nearbyUsers, user?.email, user?.id, user?.nombre]);
 
-  const bubbleDescriptors = useMemo(
-    () => {
-      // Convertir espacios en places para mostrarlos en el radar
-      const groupPlaces: NearbyPlace[] = nearbySpaces.map((space) => ({
-        id: space.space_id,
-        name: space.name,
-        activeUsers: space.members?.length ?? 0,
-        photoUri: space.photo_base64 ? space.photo_base64 : undefined,
-        subtitle: `${space.members?.length ?? 0} miembros`,
-        isGroup: true,
-        spaceId: space.space_id,
-      }));
-      return buildBubbleDescriptors(
-        visibleNearbyUsers,
-        groupPlaces,
-        width,
-        height,
-        selectedBubbleId,
-        currentCoords,
-        bubblePositionCacheRef.current,
-      );
-    },
-    [currentCoords, height, visibleNearbyUsers, selectedBubbleId, width, nearbySpaces],
-  );
+  const bubbleDescriptors = useMemo(() => {
+    // Convertir espacios en places para mostrarlos en el radar
+    const groupPlaces: NearbyPlace[] = nearbySpaces.map((space) => ({
+      id: space.space_id,
+      name: space.name,
+      activeUsers: space.members?.length ?? 0,
+      photoUri: space.photo_base64 ? space.photo_base64 : undefined,
+      subtitle: `${space.members?.length ?? 0} miembros`,
+      isGroup: true,
+      spaceId: space.space_id,
+    }));
+    return buildBubbleDescriptors(
+      visibleNearbyUsers,
+      groupPlaces,
+      width,
+      height,
+      selectedBubbleId,
+      currentCoords,
+      bubblePositionCacheRef.current,
+    );
+  }, [
+    currentCoords,
+    height,
+    visibleNearbyUsers,
+    selectedBubbleId,
+    width,
+    nearbySpaces,
+  ]);
 
   const floatingBubbles = useFloatingBubbleModels(bubbleDescriptors);
 
   const statusColor = useMemo(() => {
     switch (connectionStatus) {
-      case "connected":    return C.green;
+      case "connected":
+        return C.green;
       case "connecting":
-      case "reconnecting": return C.lav;
-      case "error":        return C.rose;
-      case "disconnected": return C.muted;
-      default:             return C.teal;
+      case "reconnecting":
+        return C.lav;
+      case "error":
+        return C.rose;
+      case "disconnected":
+        return C.muted;
+      default:
+        return C.teal;
     }
   }, [connectionStatus]);
 
@@ -1383,7 +1659,10 @@ export default function LocationScreen() {
         onPress={() => setSelectedBubbleId(null)}
       />
       <Animated.View
-        style={[StyleSheet.absoluteFill, { transform: panOffset.getTranslateTransform() }]}
+        style={[
+          StyleSheet.absoluteFill,
+          { transform: panOffset.getTranslateTransform() },
+        ]}
         {...panResponder.panHandlers}
       >
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -1403,7 +1682,9 @@ export default function LocationScreen() {
                 // Si es un grupo, abrir modal
                 if (bubble.kind === "place" && id.startsWith("place-")) {
                   const groupId = id.replace("place-", "");
-                  const group = nearbySpaces.find((s) => s.space_id === groupId);
+                  const group = nearbySpaces.find(
+                    (s) => s.space_id === groupId,
+                  );
                   if (group) {
                     setSelectedSpace(group);
                     setSelectedBubbleId(null);
@@ -1424,7 +1705,8 @@ export default function LocationScreen() {
           onPress={() =>
             Animated.spring(panOffset, {
               toValue: { x: 0, y: 0 },
-              tension: 80, friction: 10,
+              tension: 80,
+              friction: 10,
               useNativeDriver: true,
             }).start()
           }
@@ -1444,8 +1726,12 @@ export default function LocationScreen() {
               Cerca{"\n"}de <Text style={styles.titleAccent}>ti</Text>
             </Text>
           </View>
-          <View style={[styles.statusPill, { borderColor: `${statusColor}40` }]}>
-            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+          <View
+            style={[styles.statusPill, { borderColor: `${statusColor}40` }]}
+          >
+            <View
+              style={[styles.statusDot, { backgroundColor: statusColor }]}
+            />
             <Text style={[styles.statusText, { color: statusColor }]}>
               {connectivityNote}
             </Text>
@@ -1515,7 +1801,9 @@ export default function LocationScreen() {
               </Pressable>
             </View>
             {(locationError || errorMessage) && (
-              <Text style={styles.errorText}>{locationError ?? errorMessage}</Text>
+              <Text style={styles.errorText}>
+                {locationError ?? errorMessage}
+              </Text>
             )}
             {isRequestingPermission && (
               <Text style={styles.helperText}>Solicitando permiso GPS…</Text>
@@ -1554,7 +1842,12 @@ function CreateGroupModal({
   onCreate,
 }: {
   onClose: () => void;
-  onCreate: (name: string, description: string, photo: string, radius: number) => void;
+  onCreate: (
+    name: string,
+    description: string,
+    photo: string,
+    radius: number,
+  ) => void;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -1569,8 +1862,14 @@ function CreateGroupModal({
     setIsCreating(true);
     try {
       // Foto placeholder en base64 (1x1 pixel rojo)
-      const placeholderPhoto = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHoAFBQIAX8jx0gAAAABJRU5ErkJggg==";
-      await onCreate(name, description, placeholderPhoto, parseFloat(radiusKm) || 2);
+      const placeholderPhoto =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHoAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+      await onCreate(
+        name,
+        description,
+        placeholderPhoto,
+        parseFloat(radiusKm) || 2,
+      );
     } finally {
       setIsCreating(false);
     }
@@ -1624,7 +1923,9 @@ function CreateGroupModal({
             onPress={onClose}
             disabled={isCreating}
           >
-            <Text style={[styles.modalButtonText, { color: C.ink }]}>Cancelar</Text>
+            <Text style={[styles.modalButtonText, { color: C.ink }]}>
+              Cancelar
+            </Text>
           </Pressable>
           <Pressable
             style={[styles.modalButton, { backgroundColor: C.rose }]}
@@ -1709,7 +2010,9 @@ function SpaceDetailModal({
         <Text style={styles.modalDescription}>{space.description}</Text>
         <View style={styles.spaceInfoRow}>
           <Text style={styles.spaceInfoLabel}>Miembros:</Text>
-          <Text style={styles.spaceInfoValue}>{space.members?.length ?? 0}</Text>
+          <Text style={styles.spaceInfoValue}>
+            {space.members?.length ?? 0}
+          </Text>
         </View>
         <View style={styles.spaceInfoRow}>
           <Text style={styles.spaceInfoLabel}>Radio:</Text>
@@ -1730,7 +2033,10 @@ function SpaceDetailModal({
           <Text
             style={[
               styles.modalButtonText,
-              { color: isMember && space.chat_conversation_id ? C.white : C.inkMid },
+              {
+                color:
+                  isMember && space.chat_conversation_id ? C.white : C.inkMid,
+              },
             ]}
           >
             {isMember ? "Abrir chat del grupo" : "Únete para abrir el chat"}
@@ -1742,7 +2048,9 @@ function SpaceDetailModal({
             onPress={onClose}
             disabled={isLoading}
           >
-            <Text style={[styles.modalButtonText, { color: C.ink }]}>Cerrar</Text>
+            <Text style={[styles.modalButtonText, { color: C.ink }]}>
+              Cerrar
+            </Text>
           </Pressable>
           <Pressable
             style={[
@@ -1753,7 +2061,11 @@ function SpaceDetailModal({
             disabled={isLoading}
           >
             <Text style={[styles.modalButtonText, { color: C.white }]}>
-              {isLoading ? "Procesando..." : isMember ? "Salir del grupo" : "Unirse"}
+              {isLoading
+                ? "Procesando..."
+                : isMember
+                  ? "Salir del grupo"
+                  : "Unirse"}
             </Text>
           </Pressable>
         </View>
@@ -1777,70 +2089,106 @@ const styles = StyleSheet.create({
   // Fondos decorativos
   aura: { position: "absolute", borderRadius: 999 },
   aura1: {
-    width: 340, height: 340,
+    width: 340,
+    height: 340,
     backgroundColor: "rgba(255,78,122,0.07)",
-    top: -100, left: -80,
+    top: -100,
+    left: -80,
     // RN no tiene filter:blur nativo, usar opacity para el efecto
   },
   aura2: {
-    width: 260, height: 260,
+    width: 260,
+    height: 260,
     backgroundColor: "rgba(139,92,246,0.05)",
-    top: 80, right: -100,
+    top: 80,
+    right: -100,
   },
   aura3: {
-    width: 220, height: 220,
+    width: 220,
+    height: 220,
     backgroundColor: "rgba(255,155,80,0.06)",
-    bottom: 80, left: -60,
+    bottom: 80,
+    left: -60,
   },
 
   // HUD
   hud: {
-    paddingTop: 58, paddingHorizontal: 24,
-    flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start",
+    paddingTop: 58,
+    paddingHorizontal: 24,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 12,
   },
   kicker: {
-    fontSize: 10, letterSpacing: 3,
-    color: C.rose, fontWeight: "700", textTransform: "uppercase",
+    fontSize: 10,
+    letterSpacing: 3,
+    color: C.rose,
+    fontWeight: "700",
+    textTransform: "uppercase",
   },
   title: {
-    fontSize: 34, fontWeight: "900",
-    color: C.ink, letterSpacing: -1, lineHeight: 38,
+    fontSize: 34,
+    fontWeight: "900",
+    color: C.ink,
+    letterSpacing: -1,
+    lineHeight: 38,
     marginTop: 2,
   },
   titleAccent: { color: C.rose },
 
   // Status pill
   statusPill: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    paddingHorizontal: 14, paddingVertical: 9,
-    borderRadius: 999, borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 999,
+    borderWidth: 1,
     backgroundColor: C.white,
     marginTop: 32,
-    shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   statusText: { fontSize: 12, fontWeight: "600" },
 
   // Stats
   statsRow: {
-    flexDirection: "row", gap: 10,
-    marginHorizontal: 24, marginTop: 16,
+    flexDirection: "row",
+    gap: 10,
+    marginHorizontal: 24,
+    marginTop: 16,
   },
   statChip: {
-    flex: 1, flexDirection: "row", alignItems: "center", gap: 8,
-    padding: 10, borderRadius: 14,
-    backgroundColor: C.white, borderWidth: 0.5, borderColor: C.inkFaint,
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: C.white,
+    borderWidth: 0.5,
+    borderColor: C.inkFaint,
   },
   statIcon: {
-    width: 30, height: 30, borderRadius: 9,
-    alignItems: "center", justifyContent: "center",
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
   },
   statN: { fontSize: 17, fontWeight: "800", color: C.ink, lineHeight: 20 },
   statL: {
-    fontSize: 9, fontWeight: "700", color: C.inkMid,
-    letterSpacing: 0.8, textTransform: "uppercase",
+    fontSize: 9,
+    fontWeight: "700",
+    color: C.inkMid,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
 
   // Stage
@@ -1850,10 +2198,15 @@ const styles = StyleSheet.create({
   bubbleLayer: { position: "absolute", alignItems: "center" },
   bubblePressable: { alignSelf: "flex-start" },
   bubbleShell: {
-    overflow: "hidden", borderWidth: 1.5,
-    justifyContent: "center", alignItems: "center",
-    shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 18,
-    shadowOffset: { width: 0, height: 6 }, elevation: 5,
+    overflow: "hidden",
+    borderWidth: 1.5,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
   },
   userBubbleShell: {
     overflow: "visible",
@@ -1897,15 +2250,27 @@ const styles = StyleSheet.create({
     opacity: 0.62,
   },
   distBadge: {
-    position: "absolute", top: -7, right: -4,
-    paddingHorizontal: 7, paddingVertical: 2,
+    position: "absolute",
+    top: -7,
+    right: -4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
   },
-  distBadgeText: { fontSize: 9, fontWeight: "700", color: C.white, letterSpacing: 0.2 },
+  distBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: C.white,
+    letterSpacing: 0.2,
+  },
   compatBadge: {
-    position: "absolute", top: -7, left: -4,
-    paddingHorizontal: 6, paddingVertical: 2,
-    borderRadius: 999, borderWidth: 0.5,
+    position: "absolute",
+    top: -7,
+    left: -4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 0.5,
   },
   compatBadgeText: { fontSize: 9, fontWeight: "700" },
   userAvatarFill: {
@@ -1955,9 +2320,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   pip: {
-    position: "absolute", bottom: 1, right: 1,
-    width: 16, height: 16, borderRadius: 8,
-    borderWidth: 3, borderColor: C.white,
+    position: "absolute",
+    bottom: 1,
+    right: 1,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: C.white,
   },
   pipElevated: {
     right: -1,
@@ -1983,30 +2353,65 @@ const styles = StyleSheet.create({
 
   // Place bubble
   placeInner: {
-    position: "absolute", bottom: 14, left: 8, right: 8, alignItems: "center", gap: 2,
+    position: "absolute",
+    bottom: 14,
+    left: 8,
+    right: 8,
+    alignItems: "center",
+    gap: 2,
   },
-  placeName: { fontSize: 11, fontWeight: "800", color: C.ink, textAlign: "center" },
+  placeName: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: C.ink,
+    textAlign: "center",
+  },
   placeCount: { fontSize: 10, fontWeight: "700", textAlign: "center" },
 
   // Self bubble
   selfWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   selfCore: {
-    width: 60, height: 60, borderRadius: 30,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: C.rose,
-    alignItems: "center", justifyContent: "center", gap: 1,
-    shadowColor: C.rose, shadowOpacity: 0.4,
-    shadowRadius: 20, shadowOffset: { width: 0, height: 6 },
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 1,
+    shadowColor: C.rose,
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 6 },
   },
-  selfYo: { fontSize: 13, fontWeight: "900", color: C.white, letterSpacing: 1.5 },
-  selfLive: { fontSize: 8, fontWeight: "700", color: "rgba(255,255,255,0.7)", letterSpacing: 1.2 },
+  selfYo: {
+    fontSize: 13,
+    fontWeight: "900",
+    color: C.white,
+    letterSpacing: 1.5,
+  },
+  selfLive: {
+    fontSize: 8,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.7)",
+    letterSpacing: 1.2,
+  },
 
   // Tag
   tag: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    marginTop: 6, paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 999, backgroundColor: C.white,
-    borderWidth: 0.5, borderColor: C.inkFaint, maxWidth: 180,
-    shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: C.white,
+    borderWidth: 0.5,
+    borderColor: C.inkFaint,
+    maxWidth: 180,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
   },
   tagDot: { width: 5, height: 5, borderRadius: 3 },
@@ -2022,47 +2427,77 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   footerCard: {
-    backgroundColor: C.white, borderRadius: 24,
-    borderWidth: 0.5, borderColor: C.inkFaint,
-    padding: 18, gap: 12,
-    shadowColor: "#000", shadowOpacity: 0.06,
-    shadowRadius: 20, shadowOffset: { width: 0, height: -4 },
+    backgroundColor: C.white,
+    borderRadius: 24,
+    borderWidth: 0.5,
+    borderColor: C.inkFaint,
+    padding: 18,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: -4 },
   },
   broadcastRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   broadcastBar: { width: 2.5, borderRadius: 2, alignSelf: "stretch" },
   broadcastLabel: {
-    fontSize: 9, fontWeight: "700", color: C.inkMid,
-    letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 3,
+    fontSize: 9,
+    fontWeight: "700",
+    color: C.inkMid,
+    letterSpacing: 1.8,
+    textTransform: "uppercase",
+    marginBottom: 3,
   },
   broadcastMsg: { fontSize: 13, color: "#555", lineHeight: 19 },
   sep: { height: 0.5, backgroundColor: C.inkFaint },
-  coordRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  coordRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   coordLabel: { fontSize: 11, color: C.inkMid, fontWeight: "500" },
-  coordValue: { fontSize: 12, fontWeight: "700", color: C.rose, letterSpacing: 0.3 },
+  coordValue: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: C.rose,
+    letterSpacing: 0.3,
+  },
   errorText: { fontSize: 12, color: C.rose, fontWeight: "600" },
   helperText: { fontSize: 11, color: C.inkMid, fontWeight: "500" },
 
   // Recentrar
   recenterWrap: {
-    position: "absolute", bottom: 180, right: 20,
+    position: "absolute",
+    bottom: 180,
+    right: 20,
     zIndex: 30,
   },
   recenterBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 14, paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 999,
     backgroundColor: C.white,
-    borderWidth: 0.5, borderColor: C.inkFaint,
-    shadowColor: "#000", shadowOpacity: 0.08,
-    shadowRadius: 12, shadowOffset: { width: 0, height: 3 },
+    borderWidth: 0.5,
+    borderColor: C.inkFaint,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
   recenterDot: {
-    width: 8, height: 8, borderRadius: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: C.rose,
   },
   recenterText: {
-    fontSize: 12, fontWeight: "700", color: C.ink,
+    fontSize: 12,
+    fontWeight: "700",
+    color: C.ink,
   },
 
   // Groups section

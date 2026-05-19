@@ -1,6 +1,6 @@
-import { LinearGradient } from 'expo-linear-gradient';
-import { Redirect, router } from 'expo-router';
-import { useState } from 'react';
+import { LinearGradient } from "expo-linear-gradient";
+import { Redirect, router } from "expo-router";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -11,26 +11,30 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
+} from "react-native";
 
-import { useAuth } from '@/providers/auth-context';
+import { useAuth } from "@/providers/auth-context";
 
-type Mode = 'login' | 'register';
+type Mode = "login" | "register";
 
 export default function AuthScreen() {
   const { isAuthenticated, login, register } = useAuth();
 
-  const [mode, setMode] = useState<Mode>('login');
-  const [nombre, setNombre] = useState('');
-  const [identifier, setIdentifier] = useState('');
-  const [email, setEmail] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [password, setPassword] = useState('');
+  const [mode, setMode] = useState<Mode>("login");
+  const [nombre, setNombre] = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (isAuthenticated) {
-    return <Redirect href={mode === 'register' ? '/profile-builder?firstRun=1' : '/(tabs)'} />;
+    return (
+      <Redirect
+        href={mode === "register" ? "/profile-builder?firstRun=1" : "/(tabs)"}
+      />
+    );
   }
 
   const submit = async () => {
@@ -40,25 +44,25 @@ export default function AuthScreen() {
     try {
       setIsSubmitting(true);
 
-      if (mode === 'login') {
+      if (mode === "login") {
         if (!identifier.trim() || !password.trim()) {
-          throw new Error('Ingresa identifier y password.');
+          throw new Error("Ingresa identifier y password.");
         }
 
         await login({
           identifier: identifier.trim(),
           password: password.trim(),
         });
-        router.replace('/(tabs)');
+        router.replace("/(tabs)");
         return;
       }
 
       if (!nombre.trim() || !password.trim()) {
-        throw new Error('Ingresa nombre y password.');
+        throw new Error("Ingresa nombre y password.");
       }
 
       if (!email.trim() && !telefono.trim()) {
-        throw new Error('Ingresa email o telefono para registrarte.');
+        throw new Error("Ingresa email o telefono para registrarte.");
       }
 
       await register({
@@ -67,10 +71,10 @@ export default function AuthScreen() {
         email: email.trim() || undefined,
         telefono: telefono.trim() || undefined,
       });
-      router.replace('/profile-builder?firstRun=1');
+      router.replace("/profile-builder?firstRun=1");
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : 'No se pudo autenticar.';
+        error instanceof Error ? error.message : "No se pudo autenticar.";
       setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
@@ -79,10 +83,7 @@ export default function AuthScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient
-        colors={['#fef5f0', '#fff9f7']}
-        style={styles.gradient}
-      >
+      <LinearGradient colors={["#fef5f0", "#fff9f7"]} style={styles.gradient}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
@@ -90,28 +91,31 @@ export default function AuthScreen() {
           <View style={styles.headerContainer}>
             <View style={styles.logoContainer}>
               <Image
-                source={require('@/assets/images/allora-logo.png')}
+                source={require("@/assets/images/allora-logo.png")}
                 style={styles.logo}
-                resizeMode='contain'
+                resizeMode="contain"
               />
             </View>
             <Text style={styles.title}>Allora</Text>
             <Text style={styles.subtitle}>
-              {mode === 'login'
-                ? 'Bienvenido de vuelta'
-                : 'Únete a nuestra comunidad'}
+              {mode === "login"
+                ? "Bienvenido de vuelta"
+                : "Únete a nuestra comunidad"}
             </Text>
           </View>
 
           <View style={styles.formContainer}>
             <View style={styles.modeRow}>
               <Pressable
-                onPress={() => setMode('login')}
-                style={[styles.modeButton, mode === 'login' && styles.modeButtonActive]}
+                onPress={() => setMode("login")}
+                style={[
+                  styles.modeButton,
+                  mode === "login" && styles.modeButtonActive,
+                ]}
               >
-                {mode === 'login' ? (
+                {mode === "login" ? (
                   <LinearGradient
-                    colors={['#ff6b9d', '#ff9a76']}
+                    colors={["#ff6b9d", "#ff9a76"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.modeButtonGradient}
@@ -123,15 +127,15 @@ export default function AuthScreen() {
                 )}
               </Pressable>
               <Pressable
-                onPress={() => setMode('register')}
+                onPress={() => setMode("register")}
                 style={[
                   styles.modeButton,
-                  mode === 'register' && styles.modeButtonActive,
+                  mode === "register" && styles.modeButtonActive,
                 ]}
               >
-                {mode === 'register' ? (
+                {mode === "register" ? (
                   <LinearGradient
-                    colors={['#ff6b9d', '#ff9a76']}
+                    colors={["#ff6b9d", "#ff9a76"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.modeButtonGradient}
@@ -145,29 +149,29 @@ export default function AuthScreen() {
             </View>
 
             <View style={styles.inputsContainer}>
-              {mode === 'register' && (
+              {mode === "register" && (
                 <View style={styles.inputWrapper}>
                   <Text style={styles.inputLabel}>Nombre completo</Text>
                   <TextInput
-                    placeholder='Juan Pérez'
+                    placeholder="Juan Pérez"
                     value={nombre}
                     onChangeText={setNombre}
                     style={styles.input}
-                    placeholderTextColor='#aaaaaa'
+                    placeholderTextColor="#aaaaaa"
                   />
                 </View>
               )}
 
-              {mode === 'login' ? (
+              {mode === "login" ? (
                 <View style={styles.inputWrapper}>
                   <Text style={styles.inputLabel}>Email o teléfono</Text>
                   <TextInput
-                    placeholder='ejemplo@email.com'
+                    placeholder="ejemplo@email.com"
                     value={identifier}
                     onChangeText={setIdentifier}
                     style={styles.input}
-                    autoCapitalize='none'
-                    placeholderTextColor='#aaaaaa'
+                    autoCapitalize="none"
+                    placeholderTextColor="#aaaaaa"
                   />
                 </View>
               ) : (
@@ -175,24 +179,24 @@ export default function AuthScreen() {
                   <View style={styles.inputWrapper}>
                     <Text style={styles.inputLabel}>Email (opcional)</Text>
                     <TextInput
-                      placeholder='ejemplo@email.com'
+                      placeholder="ejemplo@email.com"
                       value={email}
                       onChangeText={setEmail}
                       style={styles.input}
-                      autoCapitalize='none'
-                      keyboardType='email-address'
-                      placeholderTextColor='#aaaaaa'
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      placeholderTextColor="#aaaaaa"
                     />
                   </View>
                   <View style={styles.inputWrapper}>
                     <Text style={styles.inputLabel}>Teléfono (opcional)</Text>
                     <TextInput
-                      placeholder='+34 612 345 678'
+                      placeholder="+34 612 345 678"
                       value={telefono}
                       onChangeText={setTelefono}
                       style={styles.input}
-                      keyboardType='phone-pad'
-                      placeholderTextColor='#aaaaaa'
+                      keyboardType="phone-pad"
+                      placeholderTextColor="#aaaaaa"
                     />
                   </View>
                 </>
@@ -201,13 +205,13 @@ export default function AuthScreen() {
               <View style={styles.inputWrapper}>
                 <Text style={styles.inputLabel}>Contraseña</Text>
                 <TextInput
-                  placeholder='Ingresa tu contraseña'
+                  placeholder="Ingresa tu contraseña"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
                   style={styles.input}
-                  autoCapitalize='none'
-                  placeholderTextColor='#aaaaaa'
+                  autoCapitalize="none"
+                  placeholderTextColor="#aaaaaa"
                 />
               </View>
             </View>
@@ -219,7 +223,7 @@ export default function AuthScreen() {
             )}
 
             <LinearGradient
-              colors={['#ff6b9d', '#ff9a76']}
+              colors={["#ff6b9d", "#ff9a76"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={styles.submitButtonGradient}
@@ -230,10 +234,10 @@ export default function AuthScreen() {
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
-                  <ActivityIndicator color='#ffffff' />
+                  <ActivityIndicator color="#ffffff" />
                 ) : (
                   <Text style={styles.submitText}>
-                    {mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}
+                    {mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
                   </Text>
                 )}
               </Pressable>
@@ -248,7 +252,7 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fef5f0',
+    backgroundColor: "#fef5f0",
   },
   gradient: {
     flex: 1,
@@ -257,10 +261,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: 20,
     paddingBottom: 40,
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
   },
   headerContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 30,
     marginBottom: 50,
   },
@@ -268,11 +272,11 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#ffffff',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 20,
-    shadowColor: '#ff6b9d',
+    shadowColor: "#ff6b9d",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
@@ -284,22 +288,22 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 36,
-    fontWeight: '800',
-    color: '#111111',
+    fontWeight: "800",
+    color: "#111111",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#666666',
-    textAlign: 'center',
+    color: "#666666",
+    textAlign: "center",
     maxWidth: 280,
   },
   formContainer: {
     flex: 1,
   },
   modeRow: {
-    flexDirection: 'row',
-    backgroundColor: '#f5e8e3',
+    flexDirection: "row",
+    backgroundColor: "#f5e8e3",
     borderRadius: 12,
     padding: 4,
     gap: 8,
@@ -307,29 +311,29 @@ const styles = StyleSheet.create({
   },
   modeButton: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 10,
     paddingVertical: 12,
   },
   modeButtonActive: {
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
   },
   modeButtonGradient: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 10,
     paddingVertical: 12,
   },
   modeText: {
-    color: '#cc8b7f',
+    color: "#cc8b7f",
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   modeTextActive: {
-    color: '#ffffff',
-    fontWeight: '700',
+    color: "#ffffff",
+    fontWeight: "700",
     fontSize: 15,
   },
   inputsContainer: {
@@ -341,39 +345,39 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333333',
+    fontWeight: "600",
+    color: "#333333",
     marginLeft: 4,
   },
   input: {
     borderWidth: 1.5,
-    borderColor: '#ffc4d6',
+    borderColor: "#ffc4d6",
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    backgroundColor: '#ffffff',
-    color: '#111111',
-    fontWeight: '500',
+    backgroundColor: "#ffffff",
+    color: "#111111",
+    fontWeight: "500",
   },
   errorContainer: {
-    backgroundColor: '#fee',
+    backgroundColor: "#fee",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#ff6b9d',
+    borderLeftColor: "#ff6b9d",
   },
   errorText: {
-    color: '#ff6b9d',
+    color: "#ff6b9d",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   submitButtonGradient: {
     borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#ff6b9d',
+    overflow: "hidden",
+    shadowColor: "#ff6b9d",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 12,
@@ -381,13 +385,13 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   submitText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: "700",
     letterSpacing: 0.3,
   },
 });
