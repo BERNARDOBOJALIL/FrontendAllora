@@ -139,7 +139,7 @@ function collectNameCandidates(value: unknown): NameCandidate[] {
 async function fetchUserDisplayName(userId: string, token?: string) {
   const baseUrl = AUTH_SERVICE_URL.replace(/\/$/, "");
   const encodedId = encodeURIComponent(userId);
-  const response = await fetch(`${baseUrl}/auth/users/${encodedId}`, {
+  const response = await fetch(`${baseUrl}/users/${encodedId}`, {
     headers: {
       Accept: "application/json",
       ...(token
@@ -333,11 +333,11 @@ export default function ChatScreen() {
             const name = await fetchUserDisplayName(id, token);
             if (name) {
               setUserNames((current) => ({ ...current, [id]: name }));
-              fetchedNameIdsRef.current.add(id);
             }
           } catch {
             // Ignore individual lookup failures; UI will keep existing fallback.
           } finally {
+            fetchedNameIdsRef.current.add(id);
             fetchingNameIdsRef.current.delete(id);
           }
         }),
@@ -559,11 +559,13 @@ export default function ChatScreen() {
       fetchingNameIdsRef.current.add(id);
       fetchUserDisplayName(id, token)
         .then((name) => {
-          if (!name) return;
           fetchedNameIdsRef.current.add(id);
+          if (!name) return;
           setUserNames((current) => ({ ...current, [id]: name }));
         })
-        .catch(() => undefined)
+        .catch(() => {
+          fetchedNameIdsRef.current.add(id);
+        })
         .finally(() => {
           fetchingNameIdsRef.current.delete(id);
         });

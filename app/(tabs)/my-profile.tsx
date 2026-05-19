@@ -17,7 +17,11 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/providers/auth-context';
-import { getProfileMemory, saveProfileMemory } from '@/services/profile';
+import {
+  getProfileMemory,
+  patchProfileMemoryCategory,
+  type ProfileMemoryCategory,
+} from '@/services/profile';
 import type { ProfileSnapshot } from '@/services/profile-agent';
 
 // ---------------------------------------------------------------------------
@@ -33,6 +37,7 @@ interface FieldConfig {
   icon: string;
   hint: string;
   section: string;
+  profileMemoryCategory: ProfileMemoryCategory;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,17 +46,16 @@ interface FieldConfig {
 
 const FIELDS: FieldConfig[] = [
   // Sobre ti
-  { key: 'vibeSummary',       label: 'Resumen de vibe',    type: 'string', icon: '✦', hint: 'Descríbete en pocas palabras',           section: 'Sobre ti' },
-  { key: 'socialStyle',       label: 'Estilo social',      type: 'string', icon: '◎', hint: 'Ej: introvertida, selectiva, extrovertida', section: 'Sobre ti' },
-  { key: 'emotionalStyle',    label: 'Estilo emocional',   type: 'string', icon: '♡', hint: 'Cómo expresas lo que sientes',            section: 'Sobre ti' },
-  { key: 'depthPreference',   label: 'Profundidad',        type: 'string', icon: '◈', hint: 'Ej: conversaciones profundas, casual',    section: 'Sobre ti' },
+  { key: 'vibeSummary', label: 'Resumen de vibe', type: 'string', icon: '✦', hint: 'Descríbete en pocas palabras', section: 'Sobre ti', profileMemoryCategory: 'vibe_summary' },
+  { key: 'socialStyle', label: 'Estilo social', type: 'string', icon: '◎', hint: 'Ej: introvertida, selectiva, extrovertida', section: 'Sobre ti', profileMemoryCategory: 'social_style' },
+  { key: 'emotionalStyle', label: 'Estilo emocional', type: 'string', icon: '♡', hint: 'Cómo expresas lo que sientes', section: 'Sobre ti', profileMemoryCategory: 'emotional_style' },
   // Gustos
-  { key: 'interests',         label: 'Intereses',          type: 'array',  icon: '★', hint: 'Separa con comas',                       section: 'Gustos' },
-  { key: 'hobbies',           label: 'Hobbies',            type: 'array',  icon: '◆', hint: 'Separa con comas',                       section: 'Gustos' },
-  { key: 'favoriteEnvironments', label: 'Ambientes',       type: 'array',  icon: '⬡', hint: 'Ej: cafés, parques, casa',               section: 'Gustos' },
+  { key: 'interests', label: 'Intereses', type: 'array', icon: '★', hint: 'Separa con comas', section: 'Gustos', profileMemoryCategory: 'interests' },
+  { key: 'hobbies', label: 'Hobbies', type: 'array', icon: '◆', hint: 'Separa con comas', section: 'Gustos', profileMemoryCategory: 'hobbies' },
+  { key: 'favoriteEnvironments', label: 'Ambientes', type: 'array', icon: '⬡', hint: 'Ej: cafés, parques, casa', section: 'Gustos', profileMemoryCategory: 'favorite_environments' },
+  { key: 'dislikes', label: 'No me gusta', type: 'array', icon: '!', hint: 'Separa con comas', section: 'Gustos', profileMemoryCategory: 'dislikes' },
   // Personalidad
-  { key: 'traits',            label: 'Rasgos',             type: 'array',  icon: '◉', hint: 'Separa con comas',                       section: 'Personalidad' },
-  { key: 'currentMoodTheme',  label: 'Mood actual',        type: 'string', icon: '◐', hint: 'Cómo te sientes en este momento de vida', section: 'Personalidad' },
+  { key: 'traits', label: 'Rasgos', type: 'array', icon: '◉', hint: 'Separa con comas', section: 'Personalidad', profileMemoryCategory: 'personality_traits' },
 ];
 
 const SECTIONS = ['Sobre ti', 'Gustos', 'Personalidad'];
@@ -106,39 +110,9 @@ function normalizeProfileSnapshot(input: unknown): Partial<ProfileSnapshot> {
     currentMoodTheme: asString(record.currentMoodTheme ?? record.current_mood_theme ?? contextMemory.current_mood_theme),
     interests: asStringArray(record.interests),
     hobbies: asStringArray(record.hobbies),
+    dislikes: asStringArray(record.dislikes),
     favoriteEnvironments: asStringArray(record.favoriteEnvironments ?? record.favorite_environments),
-    traits: asStringArray(record.traits),
-  };
-}
-
-function pruneEmpty<T extends Record<string, unknown>>(record: T): Partial<T> {
-  return Object.fromEntries(
-    Object.entries(record).filter(([, value]) => {
-      if (value === undefined || value === null) return false;
-      if (Array.isArray(value)) return value.length > 0;
-      if (typeof value === 'string') return value.trim().length > 0;
-      return true;
-    }),
-  ) as Partial<T>;
-}
-
-function buildProfileMemoryPayload(snapshot: Partial<ProfileSnapshot>) {
-  return {
-    profile_memory: pruneEmpty({
-      interests: snapshot.interests,
-      traits: snapshot.traits,
-      favorite_environments: snapshot.favoriteEnvironments,
-      hobbies: snapshot.hobbies,
-      social_style: snapshot.socialStyle,
-      vibe_summary: snapshot.vibeSummary,
-      emotional_style: snapshot.emotionalStyle,
-    }),
-    context_memory: pruneEmpty({
-      current_mood_theme: snapshot.currentMoodTheme,
-    }),
-    preference_memory: pruneEmpty({
-      depth_preference: snapshot.depthPreference,
-    }),
+    traits: asStringArray(record.traits ?? record.personality_traits),
   };
 }
 
@@ -182,14 +156,16 @@ function EditModal({
   field,
   value,
   visible,
+  isSaving,
   onClose,
   onSave,
 }: {
   field: FieldConfig | null;
   value: string;
   visible: boolean;
+  isSaving: boolean;
   onClose: () => void;
-  onSave: (val: string) => void;
+  onSave: (val: string) => void | Promise<void>;
 }) {
   const [text, setText] = useState(value);
 
@@ -204,7 +180,7 @@ function EditModal({
         style={styles.modalOverlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <Pressable style={styles.modalBackdrop} onPress={onClose} />
+        <Pressable style={styles.modalBackdrop} onPress={isSaving ? undefined : onClose} />
         <View style={styles.modalSheet}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalIcon}>{field.icon}</Text>
@@ -234,12 +210,16 @@ function EditModal({
           )}
 
           <View style={styles.modalActions}>
-            <Pressable style={styles.cancelBtn} onPress={onClose}>
+            <Pressable style={styles.cancelBtn} onPress={onClose} disabled={isSaving}>
               <Text style={styles.cancelBtnText}>Cancelar</Text>
             </Pressable>
-            <Pressable style={styles.saveModalBtn} onPress={() => { onSave(text); onClose(); }}>
+            <Pressable style={styles.saveModalBtn} onPress={() => { void onSave(text); }} disabled={isSaving}>
               <LinearGradient colors={['#f4547a', '#f87a5a']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveModalGradient}>
-                <Text style={styles.saveModalText}>Guardar</Text>
+                {isSaving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.saveModalText}>Guardar</Text>
+                )}
               </LinearGradient>
             </Pressable>
           </View>
@@ -341,7 +321,7 @@ export default function MyProfileScreen() {
   const [profile, setProfile] = useState<Partial<ProfileSnapshot> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [savedOk, setSavedOk] = useState(false);
+  const [profileCompletion, setProfileCompletion] = useState<number | null>(null);
 
   // Modal state
   const [activeField, setActiveField] = useState<FieldConfig | null>(null);
@@ -351,22 +331,23 @@ export default function MyProfileScreen() {
     if (!user?.id || !accessToken) return;
     setIsLoading(true);
     try {
-      const [response, localDraft] = await Promise.all([
-        getProfileMemory(user.id, accessToken),
-        loadLocalProfileDraft(user.id),
-      ]);
+      const response = await getProfileMemory(user.id, accessToken);
       const remoteProfile = normalizeProfileSnapshot({
           ...(response?.profile_memory ?? {}),
           context_memory: response?.context_memory ?? undefined,
           preference_memory: response?.preference_memory ?? undefined,
       });
-      setProfile({ ...remoteProfile, ...(localDraft ?? {}) });
+      setProfileCompletion(response.profile_completion);
+      setProfile(remoteProfile);
+      await saveLocalProfileDraft(user.id, remoteProfile);
     } catch {
       const localDraft = await loadLocalProfileDraft(user.id);
       if (localDraft) {
         setProfile(localDraft);
+        setProfileCompletion(null);
       } else {
-        Alert.alert('Error', 'No se pudo cargar el perfil.');
+        setProfile({});
+        setProfileCompletion(null);
       }
     } finally {
       setIsLoading(false);
@@ -375,26 +356,6 @@ export default function MyProfileScreen() {
 
   useFocusEffect(useCallback(() => { loadProfile(); }, [loadProfile]));
 
-  const persistProfile = useCallback(async (nextProfile: Partial<ProfileSnapshot>) => {
-    if (!user?.id || !accessToken) return;
-    await saveLocalProfileDraft(user.id, nextProfile);
-    await saveProfileMemory(user.id, accessToken, buildProfileMemoryPayload(nextProfile));
-  }, [accessToken, user?.id]);
-
-  const handleSave = async () => {
-    if (!profile) return;
-    setIsSaving(true);
-    try {
-      await persistProfile(profile);
-      setSavedOk(true);
-      setTimeout(() => setSavedOk(false), 2500);
-    } catch {
-      Alert.alert('Error', 'No se pudo guardar el perfil.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const openField = (field: FieldConfig) => {
     setActiveField(field);
     setModalVisible(true);
@@ -402,7 +363,14 @@ export default function MyProfileScreen() {
 
   const handleFieldSave = async (val: string) => {
     if (!activeField) return;
+    if (!user?.id || !accessToken) {
+      Alert.alert('Error', 'Necesitas iniciar sesión para modificar tu perfil.');
+      return;
+    }
+
+    const previousProfile = profile ?? {};
     const next = { ...(profile ?? {}) } as Partial<ProfileSnapshot>;
+
     if (activeField.type === 'array') {
       (next as any)[activeField.key] = val.split(',').map((s) => s.trim()).filter(Boolean);
     } else {
@@ -415,10 +383,23 @@ export default function MyProfileScreen() {
     }
     setIsSaving(true);
     try {
-      await persistProfile(next);
-      setSavedOk(true);
-      setTimeout(() => setSavedOk(false), 1800);
+      const response = await patchProfileMemoryCategory(
+        user.id,
+        accessToken,
+        activeField.profileMemoryCategory,
+        val,
+      );
+      const remoteProfile = response.profile_memory
+        ? normalizeProfileSnapshot(response.profile_memory)
+        : { [activeField.key]: response.formatted_value };
+      const syncedProfile = { ...next, ...remoteProfile } as Partial<ProfileSnapshot>;
+
+      setProfile(syncedProfile);
+      setProfileCompletion(response.profile_completion);
+      setModalVisible(false);
+      await saveLocalProfileDraft(user.id, syncedProfile);
     } catch {
+      setProfile(previousProfile);
       Alert.alert('Error', 'No se pudo guardar este cambio.');
     } finally {
       setIsSaving(false);
@@ -430,7 +411,9 @@ export default function MyProfileScreen() {
 
   // Completion count
   const filled = FIELDS.filter((f) => !isEmpty((profile as any)?.[f.key])).length;
-  const pct = Math.round((filled / FIELDS.length) * 100);
+  const pct = profileCompletion === null
+    ? Math.round((filled / FIELDS.length) * 100)
+    : Math.round(Math.max(0, Math.min(1, profileCompletion)) * 100);
 
   if (!isAuthenticated) {
     return (
@@ -484,19 +467,6 @@ export default function MyProfileScreen() {
               />
             ))}
 
-            {/* Save button */}
-            <View style={styles.saveRow}>
-              <Pressable style={styles.saveBtn} onPress={handleSave} disabled={isSaving}>
-                <LinearGradient colors={['#f4547a', '#f87a5a']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.saveBtnGradient}>
-                  {isSaving ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.saveBtnText}>{savedOk ? '✓ Guardado' : 'Guardar cambios'}</Text>
-                  )}
-                </LinearGradient>
-              </Pressable>
-            </View>
-
             {/* Link to chat builder */}
             <Link href="/profile-builder" style={styles.builderLink}>
               <Text style={styles.builderLinkText}>Seguir construyendo con Allora →</Text>
@@ -519,6 +489,7 @@ export default function MyProfileScreen() {
         field={activeField}
         value={activeValue}
         visible={modalVisible}
+        isSaving={isSaving}
         onClose={() => setModalVisible(false)}
         onSave={handleFieldSave}
       />
@@ -626,12 +597,6 @@ const styles = StyleSheet.create({
   },
   rowTagText: { fontSize: 11, fontWeight: '700', color: '#f4547a' },
   separator: { height: 1, backgroundColor: '#f0d8de', marginLeft: 62 },
-
-  // Save
-  saveRow: { paddingHorizontal: 16, marginBottom: 12 },
-  saveBtn: { borderRadius: 14, overflow: 'hidden' },
-  saveBtnGradient: { paddingVertical: 15, alignItems: 'center', justifyContent: 'center' },
-  saveBtnText: { fontSize: 15, fontWeight: '800', color: '#fff' },
 
   // Builder link
   builderLink: { alignItems: 'center', paddingVertical: 8 },

@@ -5,7 +5,7 @@ import { ScrollView, StyleSheet, Text } from 'react-native';
 
 // Simulación de obtención de perfil (reemplazar con llamada real)
 const fetchProfile = async (userId: string) => {
-  // Aquí iría el fetch a /auth/profile-memory/{userId}
+  // Aquí iría el fetch a /profile/{userId}
   return {
     photoUrl: 'https://randomuser.me/api/portraits/women/68.jpg',
     vibe_summary: 'Tranquila y creativa, amante de los gatos y el café.',

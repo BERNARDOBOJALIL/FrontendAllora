@@ -13,6 +13,7 @@ export type ProfileSnapshot = {
   vibeSummary: string;
   favoriteEnvironments: string[];
   hobbies: string[];
+  dislikes: string[];
   emotionalStyle: string;
   currentMoodTheme: string;
   depthPreference: string;
@@ -107,7 +108,9 @@ function pickProfileSnapshot(payload: unknown): Partial<ProfileSnapshot> | null 
   const interests = asStringArray(profileSource.interests);
   if (interests) snapshot.interests = interests;
 
-  const traits = asStringArray(profileSource.traits);
+  const traits = asStringArray(
+    profileSource.personality_traits ?? profileSource.traits,
+  );
   if (traits) snapshot.traits = traits;
 
   const favoriteEnvironments = asStringArray(
@@ -117,6 +120,9 @@ function pickProfileSnapshot(payload: unknown): Partial<ProfileSnapshot> | null 
 
   const hobbies = asStringArray(profileSource.hobbies);
   if (hobbies) snapshot.hobbies = hobbies;
+
+  const dislikes = asStringArray(profileSource.dislikes);
+  if (dislikes) snapshot.dislikes = dislikes;
 
   const socialStyle = asText(profileSource.social_style);
   if (socialStyle) snapshot.socialStyle = socialStyle;
