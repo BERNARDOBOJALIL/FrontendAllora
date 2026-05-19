@@ -1,12 +1,12 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { Link } from "expo-router";
 import {
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 
 import { useAuth } from "@/providers/auth-context";
