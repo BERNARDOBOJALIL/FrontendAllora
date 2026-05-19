@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -16,7 +16,6 @@ import { styles } from '@/app/(tabs)/chat.styles';
 import { useAuth } from '@/providers/auth-context';
 import {
   Conversation,
-  createConversation,
   getConversations,
   getMessages,
   getPresence,
@@ -24,7 +23,7 @@ import {
   markOffline,
   markOnline,
   Message,
-  sendMessage,
+  sendMessage
 } from '@/services/chat';
 
 function formatDate(dateString: string) {
@@ -115,6 +114,8 @@ export default function ChatScreen() {
   const groupName = routeParam(params.groupName);
   const spaceId = routeParam(params.spaceId);
   const groupMembersParam = routeParam(params.groupMembers);
+
+  const { conversationId: urlConversationId } = useLocalSearchParams<{ conversationId?: string }>();
 
   const routeGroupMembers = useMemo(() => {
     if (!groupMembersParam) return [];
@@ -293,6 +294,16 @@ export default function ChatScreen() {
   const handleSelectConversation = async (conversation: Conversation) => {
     await loadConversationMessages(conversation);
   };
+
+  useEffect(() => {
+    if (!urlConversationId || conversations.length === 0) return;
+    // Evitar re-seleccionar si ya está seleccionada
+    if (selectedConversation?.id === urlConversationId) return;
+    const conversation = conversations.find(c => c.id === urlConversationId);
+    if (conversation) {
+      handleSelectConversation(conversation);
+    }
+  }, [urlConversationId, conversations, selectedConversation, handleSelectConversation]);
 
   const handleSendMessage = async () => {
     if (!token || !selectedConversation) return;

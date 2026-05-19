@@ -1,6 +1,7 @@
 import ProgressiveProfileImage from '@/components/ProgressiveProfileImage';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -14,25 +15,13 @@ import {
 
 const { width } = Dimensions.get('window');
 
-
+// Datos del perfil (se pueden sobreescribir desde fuera)
 const DEFAULT_PROFILE = {
   photoUrl: 'https://randomuser.me/api/portraits/women/68.jpg',
   vibe_summary: 'Tranquila y creativa, amante de los gatos y el café.',
   social_style: 'Selectiva pero abierta cuando hay confianza.',
   emotional_style: 'Cálida y empática.',
   depth_preference: 'Profundidad media, le gusta hablar de sentimientos sin presión.',
-  interests: ['Música lo-fi', 'Fotografía analógica', 'Senderismo'],
-  hobbies: ['Tocar guitarra', 'Escribir poesía', 'Cocinar postres'],
-  favorite_environments: ['Cafés tranquilos', 'Parques con árboles', 'Librerías de viejo'],
-  traits: ['Curiosa', 'Observadora', 'Leal'],
-  current_mood_theme: 'Optimista, con ganas de conocer gente nueva',
-};
-const PROFILE = {
-  photoUrl: 'https://randomuser.me/api/portraits/women/68.jpg',
-  vibe_summary: 'Tranquila y creativa, amante de los gatos y el café.',
-  social_style: 'Selectiva pero abierta cuando hay confianza.',
-  emotional_style: 'Cálida y empática.',
-  depth_preference: 'Profundidad media, le gusta hablar de sentimientos pero sin presión.',
   interests: ['Música lo-fi', 'Fotografía analógica', 'Senderismo'],
   hobbies: ['Tocar guitarra', 'Escribir poesía', 'Cocinar postres'],
   favorite_environments: ['Cafés tranquilos', 'Parques con árboles', 'Librerías de viejo'],
@@ -63,9 +52,19 @@ const UNLOCK_THRESHOLDS = {
   COMPLETO: 100,
 };
 
-export default function ProgressiveProfileScreen({ profileData, userId }: {profileData?:typeof DEFAULT_PROFILE; userId?: string }) {
+export default function ProgressiveProfileScreen({ 
+  profileData, 
+  userId, 
+  initialUnlockLevel = 20,
+  conversationId,
+}: { 
+  profileData?: typeof DEFAULT_PROFILE; 
+  userId?: string;
+  initialUnlockLevel?: number;
+  conversationId?: string | null;
+}) {
   const profile = profileData || DEFAULT_PROFILE;
-  const [unlockLevel, setUnlockLevel] = useState(20);
+  const [unlockLevel, setUnlockLevel] = useState(initialUnlockLevel); // 👈 USA initialUnlockLevel
   const [notification, setNotification] = useState<string | null>(null);
   const [hasGustos, setHasGustos] = useState(false);
   const [hasPersonalidad, setHasPersonalidad] = useState(false);
@@ -88,7 +87,6 @@ export default function ProgressiveProfileScreen({ profileData, userId }: {profi
     }
   }, [unlockLevel]);
 
-  // Función para mostrar notificación temporal con animación
   const showNotification = (msg: string) => {
     if (notificationTimeout.current) clearTimeout(notificationTimeout.current);
     setNotification(msg);
@@ -154,7 +152,7 @@ export default function ProgressiveProfileScreen({ profileData, userId }: {profi
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <LinearGradient colors={['#fff5f8', '#fff']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.header}>
-        <ProgressiveProfileImage photoUrl={PROFILE.photoUrl} unlockLevel={unlockLevel} style={styles.profileImage} />
+        <ProgressiveProfileImage photoUrl={profile.photoUrl} unlockLevel={unlockLevel} style={styles.profileImage} />
         <Text style={styles.name}>{userId ?? 'demo'}</Text>
         <Text style={styles.levelText}>Desbloqueo: {unlockLevel}%</Text>
         <View style={styles.progressBarContainer}>
@@ -162,9 +160,23 @@ export default function ProgressiveProfileScreen({ profileData, userId }: {profi
         </View>
         <Text style={styles.motivationText}>{getMotivationMessage()}</Text>
         <View style={styles.buttonGroup}>
-          <TouchableOpacity style={styles.button} onPress={() => increaseLevel(10)}>
+          <TouchableOpacity
+            style={styles.button} 
+            onPress={() => {
+              if (conversationId) {
+                // Navegar a la conversación específica
+                router.push({
+                  pathname: '/(tabs)/chat',
+                  params: { conversationId: conversationId }
+              });
+              } else {
+                // Fallback: ir a la lista de chats
+                router.push('/(tabs)/chat');
+              }
+            }}
+          >
             <LinearGradient colors={['#ff6b9d', '#ff9a76']} style={styles.buttonGradient}>
-              <Text style={styles.buttonText}>+10% (enviar mensaje)</Text>
+              <Text style={styles.buttonText}>📨 Ir al chat</Text>
             </LinearGradient>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.button, styles.resetButton]} onPress={resetLevel}>

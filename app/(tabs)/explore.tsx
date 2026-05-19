@@ -73,14 +73,13 @@ export default function ExploreScreen() {
   const [candidates, setCandidates] = React.useState(STATIC_CANDIDATES);
 
   const handleViewProfile = (userId: string) => {
-    router.push(`/profile/${userId}`);
+    const matchId = "6a0c8684227d3eaec344ba89";
+    router.push(`/profile/${userId}?matchId=${matchId}`);
   };
 
   const handleLike = (userId: string) => {
-    // Simula enviar like (solo cambia estado local)
-    setCandidates(prev =>
-      prev.map(c => (c.user_id === userId ? { ...c, liked: true } : c))
-    );
+  const matchId = "6a0c8684227d3eaec344ba89"; // el ID de tu match
+  router.push(`/profile/${userId}?matchId=${matchId}`);
   };
 
   return (

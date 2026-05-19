@@ -169,3 +169,9 @@ export async function getPresence(userId: string, token: string) {
     token,
   });
 }
+
+// services/chat.ts
+export async function getConversationByMatchId(matchId: string, token: string) {
+  const conversations = await getConversations(token);
+  return conversations.find(conv => conv.match_id === matchId) || null;
+}
