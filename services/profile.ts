@@ -1,12 +1,46 @@
 import { apiRequest } from '@/services/api';
+import { PROFILE_AGENT_BASE_URL } from '@/services/profile-agent-base';
 
 type ProfileMemoryResponse = {
   profile_memory: Record<string, unknown> | null;
   context_memory: Record<string, unknown> | null;
   preference_memory: Record<string, unknown> | null;
+  match_preference_memory: Record<string, unknown> | null;
   profile_completion: number | null;
   updated_at: string | null;
   raw: unknown;
+};
+
+export type ProfileMemoryPatch = {
+  edad?: number | null;
+  genero?: string | null;
+  bio?: string | null;
+  location?: {
+    lat?: number | null;
+    lng?: number | null;
+  } | null;
+  interests?: string[];
+  hobbies?: string[];
+  personality_traits?: string[];
+  favorite_environments?: string[];
+  social_style?: string | null;
+  vibe_summary?: string | null;
+  dislikes?: string[];
+  emotional_style?: string | null;
+};
+
+export type MatchPreferenceMemoryPatch = {
+  edad_minima?: number | null;
+  edad_maxima?: number | null;
+  distancia_maxima_km?: number | null;
+  genero_preferido?: string | null;
+};
+
+export type MatchPayload = {
+  user_id: string;
+  profile_memory: Record<string, unknown>;
+  preference_memory: Record<string, unknown>;
+  profile_completion: number;
 };
 
 export type ProfileMemoryCategory =
@@ -54,6 +88,7 @@ function normalizeProfileMemoryResponse(payload: unknown): ProfileMemoryResponse
       asRecord(record?.preference_memory) ??
       asRecord(memoryUpdates?.preference_memory) ??
       asRecord(profileMemory?.preference_memory),
+    match_preference_memory: asRecord(record?.match_preference_memory),
     profile_completion: typeof completion === 'number' ? completion : null,
     updated_at: typeof record?.updated_at === 'string' ? record.updated_at : null,
     raw: payload,
@@ -78,8 +113,54 @@ function normalizePatchProfileMemoryCategoryResponse(
 
 export async function getProfileMemory(userId: string, token: string) {
   const encodedUserId = encodeURIComponent(userId);
-  const payload = await apiRequest(`/profile/${encodedUserId}`, { method: 'GET', token });
+  const payload = await apiRequest(`/profile/${encodedUserId}`, {
+    method: 'GET',
+    token,
+    baseUrl: PROFILE_AGENT_BASE_URL,
+  });
   return normalizeProfileMemoryResponse(payload);
+}
+
+export async function patchProfileMemory(
+  userId: string,
+  token: string,
+  body: ProfileMemoryPatch,
+) {
+  const encodedUserId = encodeURIComponent(userId);
+  const payload = await apiRequest(`/profile/${encodedUserId}/profile-memory`, {
+    method: 'PATCH',
+    token,
+    body,
+    baseUrl: PROFILE_AGENT_BASE_URL,
+  });
+  return normalizeProfileMemoryResponse(payload);
+}
+
+export async function patchPreferenceMemory(
+  userId: string,
+  token: string,
+  body: MatchPreferenceMemoryPatch,
+) {
+  const encodedUserId = encodeURIComponent(userId);
+  const payload = await apiRequest(`/profile/${encodedUserId}/preference-memory`, {
+    method: 'PATCH',
+    token,
+    body,
+    baseUrl: PROFILE_AGENT_BASE_URL,
+  });
+  return normalizeProfileMemoryResponse(payload);
+}
+
+export async function getMatchPayload(
+  userId: string,
+  token: string,
+): Promise<MatchPayload> {
+  const encodedUserId = encodeURIComponent(userId);
+  return apiRequest<MatchPayload>(`/profile/${encodedUserId}/match-payload`, {
+    method: 'GET',
+    token,
+    baseUrl: PROFILE_AGENT_BASE_URL,
+  });
 }
 
 export async function patchProfileMemoryCategory(
@@ -94,7 +175,7 @@ export async function patchProfileMemoryCategory(
 
   const payload = await apiRequest(
     `/profile/${encodedUserId}/profile-memory/${encodedCategory}`,
-    { method: 'PATCH', token, body },
+    { method: 'PATCH', token, body, baseUrl: PROFILE_AGENT_BASE_URL },
   );
   return normalizePatchProfileMemoryCategoryResponse(payload);
 }

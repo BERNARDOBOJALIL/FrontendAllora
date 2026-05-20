@@ -65,7 +65,13 @@ export default function UnlockDemoScreen() {
           <Button title="Función especial (compartir perfil)" onPress={() => alert('Desbloqueado')} />
         )}
 
-        <Link href="/(tabs)/profile-detail?id=usuario-ejemplo-123" style={styles.link}>
+        <Link
+          href={{
+            pathname: '/profile-detail',
+            params: { id: 'usuario-ejemplo-123' },
+          }}
+          style={styles.link}
+        >
           Ver perfil de otro usuario (simulado)
         </Link>
       </View>

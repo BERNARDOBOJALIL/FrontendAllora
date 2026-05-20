@@ -10,6 +10,7 @@ import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { AuthProvider, useAuth } from "@/providers/auth-context";
+import { ProfileLocationSync } from "@/providers/profile-location-sync";
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -44,13 +45,16 @@ function AuthGate() {
   }
 
   return (
-    <Stack>
-      <Stack.Screen name="profile-builder" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen
-        name="modal"
-        options={{ presentation: "modal", title: "Modal" }}
-      />
-    </Stack>
+    <>
+      <ProfileLocationSync />
+      <Stack>
+        <Stack.Screen name="profile-builder" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="modal"
+          options={{ presentation: "modal", title: "Modal" }}
+        />
+      </Stack>
+    </>
   );
 }

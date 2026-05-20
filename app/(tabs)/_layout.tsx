@@ -195,6 +195,24 @@ export default function TabLayout() {
           title: "Location",
         }}
       />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+        }}
+      />
+      <Tabs.Screen
+        name="match-service"
+        options={{
+          title: "Match",
+        }}
+      />
+      <Tabs.Screen
+        name="my-profile"
+        options={{
+          title: "Perfil",
+        }}
+      />
       <Tabs.Screen name="chat-mock" options={{ title: "Chat Mock" }} />
     </Tabs>
   );

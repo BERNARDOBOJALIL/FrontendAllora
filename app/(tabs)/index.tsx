@@ -233,4 +233,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
+  link: {
+    marginTop: 12,
+    color: C.rose,
+    fontSize: 14,
+    fontWeight: "800",
+  },
 });

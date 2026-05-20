@@ -1,4 +1,5 @@
 import { apiRequest } from '@/services/api';
+import { PROFILE_AGENT_BASE_URL } from '@/services/profile-agent-base';
 
 export type AgentMessage = {
   id: string;
@@ -173,10 +174,11 @@ export async function sendProfileMessage(input: {
   }
 
   const raw = await apiRequest<unknown>(
-    `/auth/onboarding/${encodeURIComponent(input.userId)}`,
+    '/chat',
     {
       method: 'POST',
       token: input.token,
+      baseUrl: PROFILE_AGENT_BASE_URL,
       body: {
         user_id: input.userId,
         thread_id: `onboarding-${input.userId}`,

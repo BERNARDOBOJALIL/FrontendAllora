@@ -1,7 +1,13 @@
 // services/match-service.ts
 // Cliente HTTP para el match-service backend
 
+import { Platform } from 'react-native';
+
+import { API_BASE_URL } from '@/services/api';
+
 const MATCH_SERVICE_URL = process.env.EXPO_PUBLIC_MATCH_SERVICE_URL ?? 'http://localhost:8002';
+const MATCH_GATEWAY_URL = process.env.EXPO_PUBLIC_MATCH_GATEWAY_URL ?? API_BASE_URL;
+const MATCH_PAYLOAD_ENDPOINT = process.env.EXPO_PUBLIC_MATCH_PAYLOAD_ENDPOINT ?? '/match';
 
 export type MatchStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
 
@@ -34,15 +40,37 @@ export interface PotentialMatchListResponse {
   matches: PotentialMatch[];
 }
 
+export type MatchPayload = {
+  user_id: string;
+  profile_memory: Record<string, unknown>;
+  preference_memory: Record<string, unknown>;
+  profile_completion: number;
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+type MatchRequestOptions = RequestInit & {
+  token?: string | null;
+};
+
+function authHeaders(token?: string | null): Record<string, string> {
+  if (!token) return {};
+  return { Authorization: `Bearer ${token.trim().replace(/^Bearer\s+/i, '')}` };
+}
 
 async function request<T>(
   path: string,
-  options: RequestInit = {},
+  options: MatchRequestOptions = {},
 ): Promise<T> {
-  const res = await fetch(`${MATCH_SERVICE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
+  const { token, ...requestOptions } = options;
+  const baseUrl = Platform.OS === 'web' ? MATCH_GATEWAY_URL : MATCH_SERVICE_URL;
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(token),
+      ...requestOptions.headers,
+    },
+    ...requestOptions,
   });
 
   if (!res.ok) {
@@ -66,8 +94,12 @@ export async function getPotentialMatches(
   userId: string,
   limit = 10,
   skip = 0,
+  token?: string | null,
 ): Promise<PotentialMatchListResponse> {
-  return request(`/users/${userId}/matches?limit=${limit}&skip=${skip}`);
+  return request(
+    `/users/${encodeURIComponent(userId)}/matches?limit=${limit}&skip=${skip}`,
+    { token },
+  );
 }
 
 /**
@@ -79,10 +111,14 @@ export async function getUserMatches(
   status?: MatchStatus,
   limit = 20,
   skip = 0,
+  token?: string | null,
 ): Promise<MatchListResponse> {
   const params = new URLSearchParams({ limit: String(limit), skip: String(skip) });
   if (status) params.append('status', status);
-  return request(`/users/${userId}/all-matches?${params.toString()}`);
+  return request(
+    `/users/${encodeURIComponent(userId)}/all-matches?${params.toString()}`,
+    { token },
+  );
 }
 
 /**
@@ -92,10 +128,27 @@ export async function getUserMatches(
 export async function createMatch(
   userAId: string,
   userBId: string,
+  token?: string | null,
 ): Promise<MatchResponse> {
   return request('/matches', {
     method: 'POST',
+    token,
     body: JSON.stringify({ user_a_id: userAId, user_b_id: userBId }),
+  });
+}
+
+/**
+ * Envía al match-service el perfil consolidado por el profile-agent.
+ * Por defecto usa POST /match, como indica el contrato nuevo del agente.
+ */
+export async function syncMatchPayload(
+  payload: MatchPayload,
+  token?: string | null,
+): Promise<unknown> {
+  return request(MATCH_PAYLOAD_ENDPOINT, {
+    method: 'POST',
+    token,
+    body: JSON.stringify(payload),
   });
 }
 
@@ -106,9 +159,11 @@ export async function createMatch(
 export async function updateMatchStatus(
   matchId: string,
   status: MatchStatus,
+  token?: string | null,
 ): Promise<MatchResponse> {
   return request(`/matches/${matchId}`, {
     method: 'PUT',
+    token,
     body: JSON.stringify({ status }),
   });
 }

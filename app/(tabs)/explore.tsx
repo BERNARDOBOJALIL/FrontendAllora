@@ -5,6 +5,7 @@ import {
   Animated,
   FlatList,
   Image,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -16,9 +17,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '@/providers/auth-context';
 import {
   createMatch,
+  getUserMatches,
   getPotentialMatches,
+  syncMatchPayload,
+  updateMatchStatus,
+  type MatchResponse,
   type PotentialMatch,
 } from '@/services/match-service';
+import { getMatchPayload, getProfileMemory } from '@/services/profile';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +35,7 @@ interface CandidateProfile {
   fotos: string[];
   bio?: string;
   intereses: string[];
+  hobbies?: string[];
   ubicacion?: { ciudad?: string; lat?: number; lng?: number };
 }
 
@@ -38,6 +45,12 @@ interface EnrichedMatch extends PotentialMatch {
   distance?: number;
 }
 
+interface EnrichedRequest extends MatchResponse {
+  other_user_id: string;
+  direction: 'incoming' | 'outgoing';
+  profile?: CandidateProfile;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // Fetches the user profile from your auth-service.
@@ -45,13 +58,173 @@ interface EnrichedMatch extends PotentialMatch {
 const AUTH_SERVICE_URL =
   process.env.EXPO_PUBLIC_AUTH_SERVICE_URL ?? 'http://localhost:8000';
 
-async function fetchProfile(userId: string): Promise<CandidateProfile | null> {
+function bearer(token?: string | null): Record<string, string> {
+  if (!token) return {};
+  return { Authorization: `Bearer ${token.trim().replace(/^Bearer\s+/i, '')}` };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+}
+
+function normalizeProfile(payload: unknown): CandidateProfile | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+  const id =
+    asString(record.id) ??
+    asString(record.user_id) ??
+    asString(record.userId) ??
+    asString(record._id);
+  if (!id) return null;
+
+  const ubicacion = asRecord(record.ubicacion ?? record.location);
+
+  return {
+    id,
+    nombre: asString(record.nombre ?? record.name ?? record.full_name) ?? 'Usuario',
+    edad: Number(record.edad ?? record.age) || 0,
+    fotos: asStringArray(record.fotos ?? record.photos ?? record.photo_urls),
+    bio: asString(record.bio ?? record.vibe_summary),
+    intereses: asStringArray(record.intereses ?? record.interests),
+    hobbies: asStringArray(record.hobbies),
+    ubicacion: ubicacion
+      ? {
+          ciudad: asString(ubicacion.ciudad ?? ubicacion.city),
+          lat: Number(ubicacion.lat ?? ubicacion.latitude) || undefined,
+          lng: Number(ubicacion.lng ?? ubicacion.longitude) || undefined,
+        }
+      : undefined,
+  };
+}
+
+function normalizeUsers(payload: unknown): CandidateProfile[] {
+  const record = asRecord(payload);
+  const source =
+    Array.isArray(payload)
+      ? payload
+      : Array.isArray(record?.users)
+        ? record.users
+        : Array.isArray(record?.items)
+          ? record.items
+          : Array.isArray(record?.data)
+            ? record.data
+            : [];
+
+  return source
+    .map(normalizeProfile)
+    .filter((profile): profile is CandidateProfile => Boolean(profile));
+}
+
+async function fetchProfile(userId: string, token?: string | null): Promise<CandidateProfile | null> {
   try {
-    const res = await fetch(`${AUTH_SERVICE_URL}/users/${userId}`);
+    const res = await fetch(`${AUTH_SERVICE_URL}/users/${encodeURIComponent(userId)}`, {
+      headers: bearer(token),
+    });
     if (!res.ok) return null;
-    return res.json();
+    return normalizeProfile(await res.json());
   } catch {
     return null;
+  }
+}
+
+async function fetchUsers(token?: string | null): Promise<CandidateProfile[]> {
+  try {
+    const res = await fetch(`${AUTH_SERVICE_URL}/users`, {
+      headers: bearer(token),
+    });
+    if (!res.ok) return [];
+    return normalizeUsers(await res.json());
+  } catch {
+    return [];
+  }
+}
+
+function normalizeTerm(term: string): string {
+  return term
+    .trim()
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+async function fetchProfileSignals(userId: string, token: string): Promise<string[]> {
+  try {
+    const response = await getProfileMemory(userId, token);
+    const memory = response.profile_memory ?? {};
+    return [
+      ...asStringArray(memory.interests),
+      ...asStringArray(memory.hobbies),
+    ].map(normalizeTerm).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function buildLocalMatches(
+  userId: string,
+  token: string,
+): Promise<EnrichedMatch[]> {
+  const [currentSignals, users] = await Promise.all([
+    fetchProfileSignals(userId, token),
+    fetchUsers(token),
+  ]);
+  const currentSet = new Set(currentSignals);
+  if (currentSet.size === 0 || users.length === 0) return [];
+
+  const candidates = users.filter((candidate) => candidate.id !== userId);
+  const maybeMatches = await Promise.all(
+    candidates.map(async (candidate) => {
+      const agentSignals = await fetchProfileSignals(candidate.id, token);
+      const profileSignals = [
+        ...(candidate.intereses ?? []),
+        ...(candidate.hobbies ?? []),
+      ].map(normalizeTerm);
+      const uniqueSignals = new Set([...agentSignals, ...profileSignals]);
+      const shared = [...uniqueSignals].filter((signal) => currentSet.has(signal));
+      if (shared.length === 0) return null;
+
+      return {
+        user_id: candidate.id,
+        score: Math.min(95, 55 + shared.length * 12),
+        reasons: [`Hobbies o intereses en común: ${shared.slice(0, 3).join(', ')}`],
+        profile: candidate,
+      } satisfies EnrichedMatch;
+    }),
+  );
+
+  const enriched: EnrichedMatch[] = [];
+  for (const match of maybeMatches) {
+    if (match) enriched.push(match);
+  }
+
+  return enriched
+    .sort((a, b) => b.score - a.score);
+}
+
+async function syncCurrentUserMatchPayload(
+  userId: string,
+  token?: string | null,
+): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const payload = await getMatchPayload(userId, token);
+    await syncMatchPayload(payload, token);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -185,14 +358,98 @@ function MatchCard({
   );
 }
 
+function RequestCard({
+  item,
+  onAccept,
+  onReject,
+}: {
+  item: EnrichedRequest;
+  onAccept: (matchId: string) => void;
+  onReject: (matchId: string) => void;
+}) {
+  const { profile, compatibility_score, reasons, direction } = item;
+  const incoming = direction === 'incoming';
+  const score = Math.round(compatibility_score ?? 0);
+
+  return (
+    <View style={[styles.card, styles.requestCard]}>
+      <View style={styles.cardTop}>
+        <View style={styles.avatarContainer}>
+          {profile?.fotos?.[0] ? (
+            <Image source={{ uri: profile.fotos[0] }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <MaterialCommunityIcons name="account-heart" size={36} color="#ff2d78" />
+            </View>
+          )}
+          <View style={[styles.scoreBadge, { backgroundColor: incoming ? '#ff2d78' : '#9ca3af' }]}>
+            <Text style={styles.scoreBadgeText}>{score}</Text>
+          </View>
+        </View>
+
+        <View style={styles.cardInfo}>
+          <Text style={styles.nameText}>
+            {profile?.nombre ?? 'Usuario'}{' '}
+            {profile?.edad ? <Text style={styles.ageText}>{profile.edad}</Text> : null}
+          </Text>
+          <Text style={styles.requestMeta}>
+            {incoming ? 'Quiere hacer match contigo' : 'Solicitud enviada'}
+          </Text>
+          {reasons.length > 0 ? (
+            <Text style={styles.requestReason} numberOfLines={2}>
+              {reasons[0]}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      {incoming ? (
+        <View style={styles.requestActions}>
+          <Pressable style={[styles.requestButton, styles.rejectButton]} onPress={() => onReject(item.id)}>
+            <MaterialCommunityIcons name="close" size={18} color="#6b7280" />
+            <Text style={styles.rejectButtonText}>Rechazar</Text>
+          </Pressable>
+          <Pressable style={[styles.requestButton, styles.acceptButton]} onPress={() => onAccept(item.id)}>
+            <MaterialCommunityIcons name="heart" size={18} color="#ffffff" />
+            <Text style={styles.acceptButtonText}>Aceptar</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ExploreScreen() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const [candidates, setCandidates] = useState<EnrichedMatch[]>([]);
+  const [requests, setRequests] = useState<EnrichedRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadRequests = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const response = await getUserMatches(user.id, 'PENDING', 30, 0, accessToken);
+      const enriched = await Promise.all(
+        response.matches.map(async (match) => {
+          const otherUserId = match.user_a_id === user.id ? match.user_b_id : match.user_a_id;
+          const profile = await fetchProfile(otherUserId, accessToken);
+          return {
+            ...match,
+            other_user_id: otherUserId,
+            direction: match.user_b_id === user.id ? 'incoming' : 'outgoing',
+            profile: profile ?? undefined,
+          } satisfies EnrichedRequest;
+        }),
+      );
+      setRequests(enriched);
+    } catch {
+      setRequests([]);
+    }
+  }, [accessToken, user?.id]);
 
   const loadCandidates = useCallback(
     async (silent = false) => {
@@ -201,17 +458,36 @@ export default function ExploreScreen() {
       setError(null);
 
       try {
-        const { matches } = await getPotentialMatches(user.id, 20);
+        if (accessToken) {
+          await syncCurrentUserMatchPayload(user.id, accessToken);
+        }
+        await loadRequests();
+
+        let matches: PotentialMatch[] = [];
+        try {
+          const response = await getPotentialMatches(user.id, 20, 0, accessToken);
+          matches = response.matches;
+        } catch (matchError) {
+          if (!accessToken) throw matchError;
+        }
 
         // Enrich with profiles in parallel
         const enriched: EnrichedMatch[] = await Promise.all(
           matches.map(async (m) => {
-            const profile = await fetchProfile(m.user_id);
+            const profile = await fetchProfile(m.user_id, accessToken);
             return { ...m, profile: profile ?? undefined };
           }),
         );
 
-        setCandidates(enriched);
+        if (enriched.length > 0 || !accessToken) {
+          setCandidates(enriched);
+          return;
+        }
+
+        const localMatches = accessToken && Platform.OS !== 'web'
+          ? await buildLocalMatches(user.id, accessToken)
+          : [];
+        setCandidates(localMatches);
       } catch (e: any) {
         setError(e.message ?? 'Error al cargar candidatos');
       } finally {
@@ -219,7 +495,7 @@ export default function ExploreScreen() {
         setRefreshing(false);
       }
     },
-    [user?.id],
+    [accessToken, loadRequests, user?.id],
   );
 
   useEffect(() => {
@@ -236,7 +512,10 @@ export default function ExploreScreen() {
       );
 
       try {
-        await createMatch(user.id, candidateId);
+        if (accessToken) {
+          await syncCurrentUserMatchPayload(user.id, accessToken);
+        }
+        await createMatch(user.id, candidateId, accessToken);
       } catch {
         // Revert on error
         setCandidates((prev) =>
@@ -244,13 +523,25 @@ export default function ExploreScreen() {
         );
       }
     },
-    [user?.id],
+    [accessToken, user?.id],
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadCandidates(true);
   }, [loadCandidates]);
+
+  const handleRequestStatus = useCallback(
+    async (matchId: string, status: 'ACCEPTED' | 'REJECTED') => {
+      setRequests((prev) => prev.filter((request) => request.id !== matchId));
+      try {
+        await updateMatchStatus(matchId, status, accessToken);
+      } catch {
+        await loadRequests();
+      }
+    },
+    [accessToken, loadRequests],
+  );
 
   // ── States ──
 
@@ -276,7 +567,7 @@ export default function ExploreScreen() {
     );
   }
 
-  if (candidates.length === 0) {
+  if (candidates.length === 0 && requests.length === 0) {
     return (
       <View style={styles.centerState}>
         <MaterialCommunityIcons name="account-search" size={56} color="#e5e5e5" />
@@ -297,7 +588,9 @@ export default function ExploreScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Descubrir</Text>
-          <Text style={styles.headerSub}>{candidates.length} personas compatibles</Text>
+          <Text style={styles.headerSub}>
+            {candidates.length} personas compatibles · {requests.filter((request) => request.direction === 'incoming').length} solicitudes
+          </Text>
         </View>
         <Pressable onPress={() => loadCandidates()} style={styles.refreshBtn}>
           <MaterialCommunityIcons name="refresh" size={22} color="#ff2d78" />
@@ -307,6 +600,24 @@ export default function ExploreScreen() {
       <FlatList
         data={candidates}
         keyExtractor={(item) => item.user_id}
+        ListHeaderComponent={
+          requests.length > 0 ? (
+            <View style={styles.requestsSection}>
+              <Text style={styles.sectionTitle}>Solicitudes</Text>
+              {requests.map((request) => (
+                <RequestCard
+                  key={request.id}
+                  item={request}
+                  onAccept={(matchId) => handleRequestStatus(matchId, 'ACCEPTED')}
+                  onReject={(matchId) => handleRequestStatus(matchId, 'REJECTED')}
+                />
+              ))}
+              {candidates.length > 0 ? (
+                <Text style={[styles.sectionTitle, styles.discoverTitle]}>Personas compatibles</Text>
+              ) : null}
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => (
           <MatchCard item={item} onLike={handleLike} />
         )}
@@ -366,6 +677,20 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingBottom: 32,
   },
+  requestsSection: {
+    gap: 12,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#777777',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  discoverTitle: {
+    marginTop: 8,
+  },
 
   // ── Card ──
   card: {
@@ -378,6 +703,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
     gap: 12,
+  },
+  requestCard: {
+    borderWidth: 1,
+    borderColor: '#ffe0ea',
   },
   cardTop: {
     flexDirection: 'row',
@@ -480,6 +809,23 @@ const styles = StyleSheet.create({
   },
 
   // ── Interests ──
+  requestMeta: { fontSize: 12, color: '#ff2d78', fontWeight: '700' },
+  requestReason: { fontSize: 12, color: '#666666', lineHeight: 17 },
+  requestActions: { flexDirection: 'row', gap: 10 },
+  requestButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  rejectButton: { backgroundColor: '#f3f4f6' },
+  acceptButton: { backgroundColor: '#ff2d78' },
+  rejectButtonText: { color: '#6b7280', fontSize: 13, fontWeight: '800' },
+  acceptButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
+
   interestsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

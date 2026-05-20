@@ -19,6 +19,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '@/providers/auth-context';
 import {
   getProfileMemory,
+  patchPreferenceMemory,
+  patchProfileMemory,
   patchProfileMemoryCategory,
   type ProfileMemoryCategory,
 } from '@/services/profile';
@@ -28,16 +30,33 @@ import type { ProfileSnapshot } from '@/services/profile-agent';
 // Types
 // ---------------------------------------------------------------------------
 
-type FieldType = 'string' | 'array';
+type FieldType = 'string' | 'array' | 'number';
+type FieldSource = 'profile-memory' | 'profile-memory-category' | 'preference-memory';
+
+type ProfileFormState = Partial<ProfileSnapshot> & {
+  edad?: number;
+  genero?: string;
+  bio?: string;
+  location?: {
+    lat?: number;
+    lng?: number;
+  };
+  edadMinima?: number;
+  edadMaxima?: number;
+  distanciaMaximaKm?: number;
+  generoPreferido?: string;
+};
 
 interface FieldConfig {
-  key: keyof ProfileSnapshot;
+  key: keyof ProfileFormState;
   label: string;
   type: FieldType;
   icon: string;
   hint: string;
   section: string;
-  profileMemoryCategory: ProfileMemoryCategory;
+  source: FieldSource;
+  profileMemoryCategory?: ProfileMemoryCategory;
+  payloadKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,20 +64,24 @@ interface FieldConfig {
 // ---------------------------------------------------------------------------
 
 const FIELDS: FieldConfig[] = [
-  // Sobre ti
-  { key: 'vibeSummary', label: 'Resumen de vibe', type: 'string', icon: '✦', hint: 'Descríbete en pocas palabras', section: 'Sobre ti', profileMemoryCategory: 'vibe_summary' },
-  { key: 'socialStyle', label: 'Estilo social', type: 'string', icon: '◎', hint: 'Ej: introvertida, selectiva, extrovertida', section: 'Sobre ti', profileMemoryCategory: 'social_style' },
-  { key: 'emotionalStyle', label: 'Estilo emocional', type: 'string', icon: '♡', hint: 'Cómo expresas lo que sientes', section: 'Sobre ti', profileMemoryCategory: 'emotional_style' },
-  // Gustos
-  { key: 'interests', label: 'Intereses', type: 'array', icon: '★', hint: 'Separa con comas', section: 'Gustos', profileMemoryCategory: 'interests' },
-  { key: 'hobbies', label: 'Hobbies', type: 'array', icon: '◆', hint: 'Separa con comas', section: 'Gustos', profileMemoryCategory: 'hobbies' },
-  { key: 'favoriteEnvironments', label: 'Ambientes', type: 'array', icon: '⬡', hint: 'Ej: cafés, parques, casa', section: 'Gustos', profileMemoryCategory: 'favorite_environments' },
-  { key: 'dislikes', label: 'No me gusta', type: 'array', icon: '!', hint: 'Separa con comas', section: 'Gustos', profileMemoryCategory: 'dislikes' },
-  // Personalidad
-  { key: 'traits', label: 'Rasgos', type: 'array', icon: '◉', hint: 'Separa con comas', section: 'Personalidad', profileMemoryCategory: 'personality_traits' },
+  { key: 'edad', label: 'Edad', type: 'number', icon: '18', hint: 'Ej: 28', section: 'Datos basicos', source: 'profile-memory', payloadKey: 'edad' },
+  { key: 'genero', label: 'Genero', type: 'string', icon: 'G', hint: 'Ej: femenino, masculino, no binario', section: 'Datos basicos', source: 'profile-memory', payloadKey: 'genero' },
+  { key: 'bio', label: 'Bio', type: 'string', icon: 'B', hint: 'Una descripcion corta para tu perfil', section: 'Datos basicos', source: 'profile-memory', payloadKey: 'bio' },
+  { key: 'vibeSummary', label: 'Resumen de vibe', type: 'string', icon: '*', hint: 'Describete en pocas palabras', section: 'Sobre ti', source: 'profile-memory-category', profileMemoryCategory: 'vibe_summary' },
+  { key: 'socialStyle', label: 'Estilo social', type: 'string', icon: 'S', hint: 'Ej: introvertida, selectiva, extrovertida', section: 'Sobre ti', source: 'profile-memory-category', profileMemoryCategory: 'social_style' },
+  { key: 'emotionalStyle', label: 'Estilo emocional', type: 'string', icon: 'E', hint: 'Como expresas lo que sientes', section: 'Sobre ti', source: 'profile-memory-category', profileMemoryCategory: 'emotional_style' },
+  { key: 'interests', label: 'Intereses', type: 'array', icon: '+', hint: 'Separa con comas', section: 'Gustos', source: 'profile-memory-category', profileMemoryCategory: 'interests' },
+  { key: 'hobbies', label: 'Hobbies', type: 'array', icon: 'H', hint: 'Separa con comas', section: 'Gustos', source: 'profile-memory-category', profileMemoryCategory: 'hobbies' },
+  { key: 'favoriteEnvironments', label: 'Ambientes', type: 'array', icon: 'A', hint: 'Ej: cafes, parques, casa', section: 'Gustos', source: 'profile-memory-category', profileMemoryCategory: 'favorite_environments' },
+  { key: 'dislikes', label: 'No me gusta', type: 'array', icon: '!', hint: 'Separa con comas', section: 'Gustos', source: 'profile-memory-category', profileMemoryCategory: 'dislikes' },
+  { key: 'traits', label: 'Rasgos', type: 'array', icon: 'R', hint: 'Separa con comas', section: 'Personalidad', source: 'profile-memory-category', profileMemoryCategory: 'personality_traits' },
+  { key: 'edadMinima', label: 'Edad minima', type: 'number', icon: '>', hint: 'Ej: 24', section: 'Preferencias de match', source: 'preference-memory', payloadKey: 'edad_minima' },
+  { key: 'edadMaxima', label: 'Edad maxima', type: 'number', icon: '<', hint: 'Ej: 34', section: 'Preferencias de match', source: 'preference-memory', payloadKey: 'edad_maxima' },
+  { key: 'distanciaMaximaKm', label: 'Distancia maxima', type: 'number', icon: 'KM', hint: 'Kilometros. Ej: 30', section: 'Preferencias de match', source: 'preference-memory', payloadKey: 'distancia_maxima_km' },
+  { key: 'generoPreferido', label: 'Genero preferido', type: 'string', icon: 'P', hint: 'Ej: femenino, masculino, cualquiera', section: 'Preferencias de match', source: 'preference-memory', payloadKey: 'genero_preferido' },
 ];
 
-const SECTIONS = ['Sobre ti', 'Gustos', 'Personalidad'];
+const SECTIONS = ['Datos basicos', 'Sobre ti', 'Gustos', 'Personalidad', 'Preferencias de match'];
 const PROFILE_DRAFT_KEY_PREFIX = 'allora-profile-memory-draft';
 
 // ---------------------------------------------------------------------------
@@ -67,13 +90,25 @@ const PROFILE_DRAFT_KEY_PREFIX = 'allora-profile-memory-draft';
 
 function displayValue(raw: unknown, type: FieldType): string {
   if (Array.isArray(raw)) return raw.join(', ');
-  return (raw as string) ?? '';
+  if (type === 'number') return typeof raw === 'number' ? String(raw) : '';
+  if (raw && typeof raw === 'object') {
+    const location = raw as { lat?: unknown; lng?: unknown };
+    const lat = typeof location.lat === 'number' ? location.lat : '';
+    const lng = typeof location.lng === 'number' ? location.lng : '';
+    return lat !== '' || lng !== '' ? `${lat}, ${lng}` : '';
+  }
+  return typeof raw === 'string' ? raw : '';
 }
 
 function isEmpty(raw: unknown): boolean {
-  if (!raw) return true;
+  if (raw === null || raw === undefined) return true;
   if (Array.isArray(raw)) return raw.length === 0;
-  return (raw as string).trim() === '';
+  if (typeof raw === 'number') return !Number.isFinite(raw);
+  if (typeof raw === 'object') {
+    const location = raw as { lat?: unknown; lng?: unknown };
+    return typeof location.lat !== 'number' || typeof location.lng !== 'number';
+  }
+  return String(raw).trim() === '';
 }
 
 function asString(value: unknown): string | undefined {
@@ -88,7 +123,10 @@ function asStringArray(value: unknown): string[] | undefined {
   return items.length > 0 ? items : [];
 }
 
-function normalizeProfileSnapshot(input: unknown): Partial<ProfileSnapshot> {
+function normalizeProfileSnapshot(
+  input: unknown,
+  preferenceInput?: unknown,
+): ProfileFormState {
   const record =
     input && typeof input === 'object' && !Array.isArray(input)
       ? (input as Record<string, unknown>)
@@ -102,7 +140,16 @@ function normalizeProfileSnapshot(input: unknown): Partial<ProfileSnapshot> {
       ? (record.preference_memory as Record<string, unknown>)
       : {};
 
+  const matchPreference =
+    preferenceInput && typeof preferenceInput === 'object' && !Array.isArray(preferenceInput)
+      ? (preferenceInput as Record<string, unknown>)
+      : preferenceMemory;
+
   return {
+    edad: asNumber(record.edad ?? record.age),
+    genero: asString(record.genero ?? record.gender),
+    bio: asString(record.bio),
+    location: asLocation(record.location ?? record.ubicacion),
     vibeSummary: asString(record.vibeSummary ?? record.vibe_summary),
     socialStyle: asString(record.socialStyle ?? record.social_style),
     emotionalStyle: asString(record.emotionalStyle ?? record.emotional_style),
@@ -113,7 +160,44 @@ function normalizeProfileSnapshot(input: unknown): Partial<ProfileSnapshot> {
     dislikes: asStringArray(record.dislikes),
     favoriteEnvironments: asStringArray(record.favoriteEnvironments ?? record.favorite_environments),
     traits: asStringArray(record.traits ?? record.personality_traits),
+    edadMinima: asNumber(record.edadMinima ?? matchPreference.edad_minima),
+    edadMaxima: asNumber(record.edadMaxima ?? matchPreference.edad_maxima),
+    distanciaMaximaKm: asNumber(
+      record.distanciaMaximaKm ?? matchPreference.distancia_maxima_km,
+    ),
+    generoPreferido: asString(record.generoPreferido ?? matchPreference.genero_preferido),
   };
+}
+
+function withoutUndefined<T extends Record<string, unknown>>(input: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function asLocation(value: unknown): { lat?: number; lng?: number } | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const lat = asNumber(record.lat ?? record.latitude);
+  const lng = asNumber(record.lng ?? record.longitude);
+  return lat === undefined && lng === undefined ? undefined : { lat, lng };
+}
+
+function parseNumberInput(value: string, label: string): number {
+  const parsed = Number(value.trim().replace(',', '.'));
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} debe ser un numero valido.`);
+  }
+  return parsed;
 }
 
 function profileDraftKey(userId: string) {
@@ -121,7 +205,7 @@ function profileDraftKey(userId: string) {
   return `${PROFILE_DRAFT_KEY_PREFIX}.${safeUserId}`;
 }
 
-async function loadLocalProfileDraft(userId: string): Promise<Partial<ProfileSnapshot> | null> {
+async function loadLocalProfileDraft(userId: string): Promise<ProfileFormState | null> {
   const key = profileDraftKey(userId);
   const raw =
     Platform.OS === 'web'
@@ -136,7 +220,7 @@ async function loadLocalProfileDraft(userId: string): Promise<Partial<ProfileSna
   }
 }
 
-async function saveLocalProfileDraft(userId: string, snapshot: Partial<ProfileSnapshot>) {
+async function saveLocalProfileDraft(userId: string, snapshot: ProfileFormState) {
   const key = profileDraftKey(userId);
   const value = JSON.stringify(snapshot);
 
@@ -194,6 +278,7 @@ function EditModal({
             placeholder={field.hint}
             placeholderTextColor="#c0a8b0"
             multiline={field.type === 'string'}
+            keyboardType={field.type === 'number' ? 'numeric' : 'default'}
             autoFocus
           />
 
@@ -290,7 +375,7 @@ function ProfileSection({
 }: {
   title: string;
   fields: FieldConfig[];
-  profile: Partial<ProfileSnapshot>;
+  profile: ProfileFormState;
   onPressField: (field: FieldConfig) => void;
 }) {
   return (
@@ -318,10 +403,9 @@ function ProfileSection({
 
 export default function MyProfileScreen() {
   const { user, isAuthenticated, accessToken } = useAuth();
-  const [profile, setProfile] = useState<Partial<ProfileSnapshot> | null>(null);
+  const [profile, setProfile] = useState<ProfileFormState | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [profileCompletion, setProfileCompletion] = useState<number | null>(null);
 
   // Modal state
   const [activeField, setActiveField] = useState<FieldConfig | null>(null);
@@ -336,18 +420,15 @@ export default function MyProfileScreen() {
           ...(response?.profile_memory ?? {}),
           context_memory: response?.context_memory ?? undefined,
           preference_memory: response?.preference_memory ?? undefined,
-      });
-      setProfileCompletion(response.profile_completion);
+      }, response?.match_preference_memory ?? response?.preference_memory ?? undefined);
       setProfile(remoteProfile);
       await saveLocalProfileDraft(user.id, remoteProfile);
     } catch {
       const localDraft = await loadLocalProfileDraft(user.id);
       if (localDraft) {
         setProfile(localDraft);
-        setProfileCompletion(null);
       } else {
         setProfile({});
-        setProfileCompletion(null);
       }
     } finally {
       setIsLoading(false);
@@ -369,12 +450,19 @@ export default function MyProfileScreen() {
     }
 
     const previousProfile = profile ?? {};
-    const next = { ...(profile ?? {}) } as Partial<ProfileSnapshot>;
+    const next = { ...(profile ?? {}) } as ProfileFormState;
 
-    if (activeField.type === 'array') {
-      (next as any)[activeField.key] = val.split(',').map((s) => s.trim()).filter(Boolean);
-    } else {
-      (next as any)[activeField.key] = val.trim();
+    try {
+      if (activeField.type === 'array') {
+        (next as any)[activeField.key] = val.split(',').map((s) => s.trim()).filter(Boolean);
+      } else if (activeField.type === 'number') {
+        (next as any)[activeField.key] = val.trim() ? parseNumberInput(val, activeField.label) : undefined;
+      } else {
+        (next as any)[activeField.key] = val.trim();
+      }
+    } catch (err) {
+      Alert.alert('Revisa el dato', err instanceof Error ? err.message : 'El valor no es valido.');
+      return;
     }
 
     setProfile(next);
@@ -383,19 +471,33 @@ export default function MyProfileScreen() {
     }
     setIsSaving(true);
     try {
-      const response = await patchProfileMemoryCategory(
-        user.id,
-        accessToken,
-        activeField.profileMemoryCategory,
-        val,
-      );
+      const response =
+        activeField.source === 'profile-memory-category' && activeField.profileMemoryCategory
+          ? await patchProfileMemoryCategory(
+              user.id,
+              accessToken,
+              activeField.profileMemoryCategory,
+              val,
+            )
+          : activeField.source === 'preference-memory'
+            ? await patchPreferenceMemory(user.id, accessToken, {
+                [activeField.payloadKey ?? String(activeField.key)]: (next as any)[activeField.key] ?? null,
+              })
+            : await patchProfileMemory(user.id, accessToken, {
+                [activeField.payloadKey ?? String(activeField.key)]: (next as any)[activeField.key] ?? null,
+              });
       const remoteProfile = response.profile_memory
-        ? normalizeProfileSnapshot(response.profile_memory)
-        : { [activeField.key]: response.formatted_value };
-      const syncedProfile = { ...next, ...remoteProfile } as Partial<ProfileSnapshot>;
+        ? normalizeProfileSnapshot(
+            response.profile_memory,
+            response.match_preference_memory ?? response.preference_memory ?? undefined,
+          )
+        : { [activeField.key]: (response as any).formatted_value };
+      const syncedProfile = {
+        ...next,
+        ...withoutUndefined(remoteProfile as Record<string, unknown>),
+      } as ProfileFormState;
 
       setProfile(syncedProfile);
-      setProfileCompletion(response.profile_completion);
       setModalVisible(false);
       await saveLocalProfileDraft(user.id, syncedProfile);
     } catch {
@@ -411,9 +513,7 @@ export default function MyProfileScreen() {
 
   // Completion count
   const filled = FIELDS.filter((f) => !isEmpty((profile as any)?.[f.key])).length;
-  const pct = profileCompletion === null
-    ? Math.round((filled / FIELDS.length) * 100)
-    : Math.round(Math.max(0, Math.min(1, profileCompletion)) * 100);
+  const pct = Math.round((filled / FIELDS.length) * 100);
 
   if (!isAuthenticated) {
     return (
