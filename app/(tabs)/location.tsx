@@ -28,6 +28,7 @@ import {
     SocketStatus,
 } from "@/services/location-websocket";
 import { getProfileMemory } from "@/services/profile";
+import { createMatch } from "@/services/match-service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1225,6 +1226,8 @@ export default function LocationScreen() {
   const [selectedSpace, setSelectedSpace] = useState<Space | null>(null);
   const [selectedNearbyUser, setSelectedNearbyUser] = useState<NearbyUser | null>(null);
   const [isLoadingNearbyUser, setIsLoadingNearbyUser] = useState(false);
+  const [isSendingNearbyMatch, setIsSendingNearbyMatch] = useState(false);
+  const [sentNearbyMatchRequests, setSentNearbyMatchRequests] = useState<Record<string, boolean>>({});
 
   // ─── Pan / drag del stage ──────────────────────────────────────────────────
   const panOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -1450,7 +1453,9 @@ export default function LocationScreen() {
   const handleUserBubblePress = useCallback(
     async (bubbleId: string) => {
       const nearbyUserId = bubbleId.replace("user-", "");
-      const nearbyUser = nearbyUsers.find((item) => item.id === nearbyUserId);
+      const nearbyUser =
+        nearbyUsers.find((item) => item.id === nearbyUserId) ??
+        (selectedNearbyUser?.id === nearbyUserId ? selectedNearbyUser : null);
       if (!nearbyUser) return;
 
       setSelectedBubbleId(bubbleId);
@@ -1463,7 +1468,37 @@ export default function LocationScreen() {
       );
       setIsLoadingNearbyUser(false);
     },
-    [accessToken, nearbyUsers],
+    [accessToken, nearbyUsers, selectedNearbyUser],
+  );
+
+  const handleSendNearbyMatch = useCallback(
+    async (nearbyUserId: string) => {
+      if (!user?.id) return;
+      if (isSendingNearbyMatch || sentNearbyMatchRequests[nearbyUserId]) return;
+
+      setIsSendingNearbyMatch(true);
+      try {
+        await createMatch(user.id, nearbyUserId, accessToken);
+        setSentNearbyMatchRequests((prev) => ({
+          ...prev,
+          [nearbyUserId]: true,
+        }));
+        setMatchCount((current) => current + 1);
+        setTimeout(() => {
+          setSelectedNearbyUser(null);
+          setSelectedBubbleId(null);
+        }, 1200);
+      } catch (err) {
+        setErrorMessage(
+          err instanceof Error
+            ? err.message
+            : "No se pudo enviar la solicitud de match",
+        );
+      } finally {
+        setIsSendingNearbyMatch(false);
+      }
+    },
+    [user?.id, isSendingNearbyMatch, sentNearbyMatchRequests, accessToken],
   );
 
   const stopLocationWatcher = useCallback(() => {
@@ -1778,7 +1813,6 @@ export default function LocationScreen() {
               onPress={(id) => {
                 if (isDragging.current) return;
                 if (bubble.kind === "user") {
-                  setMatchCount((n) => (selectedBubbleId === id ? n + 1 : n));
                   void handleUserBubblePress(id);
                   return;
                 }
@@ -1939,6 +1973,9 @@ export default function LocationScreen() {
         <NearbyUserDetailModal
           nearbyUser={selectedNearbyUser}
           isLoading={isLoadingNearbyUser}
+          isMatchSent={sentNearbyMatchRequests[selectedNearbyUser.id] ?? false}
+          isMatchLoading={isSendingNearbyMatch}
+          onMatch={handleSendNearbyMatch}
           onClose={() => {
             setSelectedNearbyUser(null);
             setSelectedBubbleId(null);
@@ -1967,10 +2004,16 @@ function DetailTags({ items }: { items?: string[] }) {
 function NearbyUserDetailModal({
   nearbyUser,
   isLoading,
+  isMatchSent,
+  isMatchLoading,
+  onMatch,
   onClose,
 }: {
   nearbyUser: NearbyUser;
   isLoading: boolean;
+  isMatchSent: boolean;
+  isMatchLoading: boolean;
+  onMatch: (nearbyUserId: string) => Promise<void>;
   onClose: () => void;
 }) {
   const title = `${nearbyUser.name}${nearbyUser.age ? `, ${nearbyUser.age}` : ""}`;
@@ -2033,6 +2076,29 @@ function NearbyUserDetailModal({
         {nearbyUser.socialStyle ? (
           <Text style={styles.userModalLine}>Estilo social: {nearbyUser.socialStyle}</Text>
         ) : null}
+
+        <Pressable
+          style={[
+            styles.modalButton,
+            styles.modalButtonFull,
+            { backgroundColor: isMatchSent ? C.inkFaint : C.rose },
+          ]}
+          onPress={() => { void onMatch(nearbyUser.id); }}
+          disabled={isLoading || isMatchSent || isMatchLoading}
+        >
+          <Text
+            style={[
+              styles.modalButtonText,
+              { color: isMatchSent ? C.ink : C.white },
+            ]}
+          >
+            {isMatchLoading
+              ? "Enviando..."
+              : isMatchSent
+              ? "Solicitud enviada"
+              : "Enviar match"}
+          </Text>
+        </Pressable>
 
         <Pressable
           style={[styles.modalButton, styles.modalButtonFull, { backgroundColor: C.rose }]}

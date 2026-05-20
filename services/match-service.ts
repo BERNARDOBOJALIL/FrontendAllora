@@ -64,7 +64,17 @@ async function request<T>(
 ): Promise<T> {
   const { token, ...requestOptions } = options;
   const baseUrl = Platform.OS === 'web' ? MATCH_GATEWAY_URL : MATCH_SERVICE_URL;
-  const res = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
+  const fullUrl = `${baseUrl.replace(/\/$/, '')}${path}`;
+  // Dev log: show request target and whether a token is included (do not print token raw)
+  if (process.env.NODE_ENV !== 'production') {
+    console.debug('[match-service] request', {
+      url: fullUrl,
+      method: requestOptions.method ?? 'GET',
+      hasToken: Boolean(options.token),
+    });
+  }
+
+  const res = await fetch(fullUrl, {
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(token),
