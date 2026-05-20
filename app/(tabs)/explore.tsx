@@ -36,6 +36,12 @@ interface CandidateProfile {
   bio?: string;
   intereses: string[];
   hobbies?: string[];
+  personalityTraits?: string[];
+  favoriteEnvironments?: string[];
+  dislikes?: string[];
+  socialStyle?: string;
+  vibeSummary?: string;
+  emotionalStyle?: string;
   ubicacion?: { ciudad?: string; lat?: number; lng?: number };
 }
 
@@ -110,6 +116,44 @@ function normalizeProfile(payload: unknown): CandidateProfile | null {
   };
 }
 
+function mergeAgentProfile(
+  base: CandidateProfile | null,
+  userId: string,
+  agentProfile: Record<string, unknown> | null,
+): CandidateProfile | null {
+  if (!base && !agentProfile) return null;
+  const location = asRecord(agentProfile?.location);
+  const intereses = asStringArray(agentProfile?.interests);
+  const hobbies = asStringArray(agentProfile?.hobbies);
+  const vibeSummary = asString(agentProfile?.vibe_summary);
+
+  return {
+    id: base?.id ?? userId,
+    nombre:
+      asString(agentProfile?.nombre ?? agentProfile?.name ?? agentProfile?.full_name) ??
+      base?.nombre ??
+      'Usuario',
+    edad: Number(agentProfile?.edad ?? agentProfile?.age ?? base?.edad) || 0,
+    fotos: base?.fotos ?? [],
+    bio: asString(agentProfile?.bio) ?? vibeSummary ?? base?.bio,
+    intereses: intereses.length > 0 ? intereses : (base?.intereses ?? []),
+    hobbies: hobbies.length > 0 ? hobbies : base?.hobbies,
+    personalityTraits: asStringArray(agentProfile?.personality_traits ?? agentProfile?.traits),
+    favoriteEnvironments: asStringArray(agentProfile?.favorite_environments),
+    dislikes: asStringArray(agentProfile?.dislikes),
+    socialStyle: asString(agentProfile?.social_style),
+    vibeSummary,
+    emotionalStyle: asString(agentProfile?.emotional_style),
+    ubicacion: location
+      ? {
+          ciudad: base?.ubicacion?.ciudad,
+          lat: Number(location.lat ?? location.latitude ?? base?.ubicacion?.lat) || undefined,
+          lng: Number(location.lng ?? location.longitude ?? base?.ubicacion?.lng) || undefined,
+        }
+      : base?.ubicacion,
+  };
+}
+
 function normalizeUsers(payload: unknown): CandidateProfile[] {
   const record = asRecord(payload);
   const source =
@@ -129,15 +173,21 @@ function normalizeUsers(payload: unknown): CandidateProfile[] {
 }
 
 async function fetchProfile(userId: string, token?: string | null): Promise<CandidateProfile | null> {
-  try {
-    const res = await fetch(`${AUTH_SERVICE_URL}/users/${encodeURIComponent(userId)}`, {
-      headers: bearer(token),
-    });
-    if (!res.ok) return null;
-    return normalizeProfile(await res.json());
-  } catch {
-    return null;
+  const agentResponse = await getProfileMemory(userId, token).catch(() => null);
+  let authProfile: CandidateProfile | null = null;
+
+  if (Platform.OS !== 'web') {
+    try {
+      const res = await fetch(`${AUTH_SERVICE_URL}/users/${encodeURIComponent(userId)}`, {
+        headers: bearer(token),
+      });
+      if (res.ok) authProfile = normalizeProfile(await res.json());
+    } catch {
+      authProfile = null;
+    }
   }
+
+  return mergeAgentProfile(authProfile, userId, agentResponse?.profile_memory ?? null);
 }
 
 async function fetchUsers(token?: string | null): Promise<CandidateProfile[]> {
@@ -195,12 +245,13 @@ async function buildLocalMatches(
       const uniqueSignals = new Set([...agentSignals, ...profileSignals]);
       const shared = [...uniqueSignals].filter((signal) => currentSet.has(signal));
       if (shared.length === 0) return null;
+      const enrichedProfile = await fetchProfile(candidate.id, token);
 
       return {
         user_id: candidate.id,
         score: Math.min(95, 55 + shared.length * 12),
         reasons: [`Hobbies o intereses en común: ${shared.slice(0, 3).join(', ')}`],
-        profile: candidate,
+        profile: enrichedProfile ?? candidate,
       } satisfies EnrichedMatch;
     }),
   );
@@ -339,6 +390,26 @@ function MatchCard({
         </View>
       )}
 
+      {profile ? (
+        <View style={styles.profileDetails}>
+          {profile.bio ? (
+            <Text style={styles.bioText} numberOfLines={2}>
+              {profile.bio}
+            </Text>
+          ) : null}
+          {profile.socialStyle ? (
+            <Text style={styles.detailText} numberOfLines={1}>
+              Estilo: {profile.socialStyle}
+            </Text>
+          ) : null}
+          {profile.favoriteEnvironments && profile.favoriteEnvironments.length > 0 ? (
+            <Text style={styles.detailText} numberOfLines={1}>
+              Prefiere: {profile.favoriteEnvironments.slice(0, 3).join(', ')}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
       {/* Action */}
       <Pressable
         style={[styles.likeButton, liked && styles.likeButtonDone]}
@@ -395,6 +466,11 @@ function RequestCard({
           <Text style={styles.requestMeta}>
             {incoming ? 'Quiere hacer match contigo' : 'Solicitud enviada'}
           </Text>
+          {profile?.bio ? (
+            <Text style={styles.requestReason} numberOfLines={2}>
+              {profile.bio}
+            </Text>
+          ) : null}
           {reasons.length > 0 ? (
             <Text style={styles.requestReason} numberOfLines={2}>
               {reasons[0]}
@@ -841,6 +917,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#ff2d78',
     fontWeight: '600',
+  },
+  profileDetails: {
+    gap: 4,
+    paddingTop: 2,
+  },
+  bioText: {
+    fontSize: 13,
+    color: '#444444',
+    lineHeight: 18,
+  },
+  detailText: {
+    fontSize: 12,
+    color: '#777777',
   },
 
   // ── Like button ──

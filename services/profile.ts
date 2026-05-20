@@ -1,7 +1,7 @@
 import { apiRequest } from '@/services/api';
 import { PROFILE_AGENT_BASE_URL } from '@/services/profile-agent-base';
 
-type ProfileMemoryResponse = {
+export type ProfileMemoryResponse = {
   profile_memory: Record<string, unknown> | null;
   context_memory: Record<string, unknown> | null;
   preference_memory: Record<string, unknown> | null;
@@ -111,11 +111,11 @@ function normalizePatchProfileMemoryCategoryResponse(
   };
 }
 
-export async function getProfileMemory(userId: string, token: string) {
+export async function getProfileMemory(userId: string, token?: string | null) {
   const encodedUserId = encodeURIComponent(userId);
   const payload = await apiRequest(`/profile/${encodedUserId}`, {
     method: 'GET',
-    token,
+    token: token ?? undefined,
     baseUrl: PROFILE_AGENT_BASE_URL,
   });
   return normalizeProfileMemoryResponse(payload);

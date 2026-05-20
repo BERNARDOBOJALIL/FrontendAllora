@@ -28,6 +28,7 @@ import {
     sendGroupMessage,
     sendMessage,
 } from "@/services/chat";
+import { getProfileMemory } from "@/services/profile";
 
 const AUTH_SERVICE_URL =
   process.env.EXPO_PUBLIC_AUTH_SERVICE_URL?.trim() ||
@@ -60,11 +61,34 @@ function extractProfileName(payload: unknown): string {
     record.fullName ??
     record.display_name ??
     record.displayName ??
+    record.nombre_usuario ??
+    record.nombreUsuario ??
     record.username;
 
   if (typeof direct === "string" && direct.trim()) return direct.trim();
+
+  const firstName =
+    typeof record.first_name === "string"
+      ? record.first_name.trim()
+      : typeof record.firstName === "string"
+        ? record.firstName.trim()
+        : "";
+  const lastName =
+    typeof record.last_name === "string"
+      ? record.last_name.trim()
+      : typeof record.lastName === "string"
+        ? record.lastName.trim()
+        : "";
+  const fullName = `${firstName} ${lastName}`.trim();
+  if (fullName) return fullName;
+
   return extractProfileName(
-    record.user ?? record.profile ?? record.data ?? record.result,
+    record.user ??
+      record.profile ??
+      record.profile_memory ??
+      record.profileMemory ??
+      record.data ??
+      record.result,
   );
 }
 
@@ -137,23 +161,37 @@ function collectNameCandidates(value: unknown): NameCandidate[] {
 }
 
 async function fetchUserDisplayName(userId: string, token?: string) {
-  const baseUrl = AUTH_SERVICE_URL.replace(/\/$/, "");
-  const encodedId = encodeURIComponent(userId);
-  const response = await fetch(`${baseUrl}/users/${encodedId}`, {
-    headers: {
-      Accept: "application/json",
-      ...(token
-        ? { Authorization: `Bearer ${token.replace(/^Bearer\s+/i, "")}` }
-        : {}),
-    },
-  });
-
-  if (!response.ok) {
-    return "";
+  try {
+    const profile = await getProfileMemory(userId, token);
+    const name = extractProfileName(profile.profile_memory ?? profile.raw);
+    if (name && name !== userId) return name;
+  } catch {
+    // Fall through to the auth-service lookup on native builds.
   }
 
-  const name = extractProfileName(await response.json());
-  return name && name !== userId ? name : "";
+  if (Platform.OS === "web") return "";
+
+  const baseUrl = AUTH_SERVICE_URL.replace(/\/$/, "");
+  const encodedId = encodeURIComponent(userId);
+  try {
+    const response = await fetch(`${baseUrl}/users/${encodedId}`, {
+      headers: {
+        Accept: "application/json",
+        ...(token
+          ? { Authorization: `Bearer ${token.replace(/^Bearer\s+/i, "")}` }
+          : {}),
+      },
+    });
+
+    if (response.ok) {
+      const name = extractProfileName(await response.json());
+      if (name && name !== userId) return name;
+    }
+  } catch {
+    // Fall through to the profile-agent lookup.
+  }
+
+  return "";
 }
 
 function isGroupConversation(conversation: Conversation) {
@@ -286,7 +324,7 @@ export default function ChatScreen() {
       if (userId === user?.id) return user?.nombre ?? "Tu";
       const knownName = userNames[userId]?.trim();
       if (knownName) return knownName;
-      return userId ? `Usuario ${userId.slice(0, 6)}` : "Usuario";
+      return "Usuario";
     },
     [user?.id, user?.nombre, userNames],
   );

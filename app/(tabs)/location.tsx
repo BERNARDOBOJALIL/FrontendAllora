@@ -27,6 +27,7 @@ import {
     LocationWebSocketService,
     SocketStatus,
 } from "@/services/location-websocket";
+import { getProfileMemory } from "@/services/profile";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,13 @@ type NearbyUser = {
   subtitle?: string;
   distance?: string;
   compatibility?: number;
+  age?: number;
+  bio?: string;
+  interests?: string[];
+  hobbies?: string[];
+  preferences?: string[];
+  socialStyle?: string;
+  emotionalStyle?: string;
 };
 
 type NearbyPlace = {
@@ -217,6 +225,78 @@ function formatConnectionLabel(status: SocketStatus): string {
 function readStringField(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function asText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function asTextArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function mergeProfileIntoNearbyUser(
+  nearbyUser: NearbyUser,
+  profileMemory: Record<string, unknown> | null,
+  preferenceMemory: Record<string, unknown> | null,
+  matchPreferenceMemory: Record<string, unknown> | null,
+): NearbyUser {
+  if (!profileMemory && !preferenceMemory && !matchPreferenceMemory) return nearbyUser;
+  const favoriteEnvironments = asTextArray(profileMemory?.favorite_environments);
+  const socialStyle = asText(profileMemory?.social_style);
+  const emotionalStyle = asText(profileMemory?.emotional_style);
+  const minAge = Number(matchPreferenceMemory?.edad_minima) || null;
+  const maxAge = Number(matchPreferenceMemory?.edad_maxima) || null;
+  const maxDistance = Number(matchPreferenceMemory?.distancia_maxima_km) || null;
+  const preferences = [
+    ...favoriteEnvironments,
+    socialStyle,
+    emotionalStyle,
+    asText(preferenceMemory?.conversation_style),
+    asText(preferenceMemory?.depth_preference),
+    asText(matchPreferenceMemory?.genero_preferido)
+      ? `Busca ${asText(matchPreferenceMemory?.genero_preferido)}`
+      : undefined,
+    minAge && maxAge ? `Edad ${minAge}-${maxAge}` : undefined,
+    maxDistance ? `Hasta ${maxDistance} km` : undefined,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    ...nearbyUser,
+    name:
+      asText(profileMemory?.nombre ?? profileMemory?.name ?? profileMemory?.full_name) ??
+      nearbyUser.name,
+    age: Number(profileMemory?.edad ?? profileMemory?.age) || nearbyUser.age,
+    bio:
+      asText(profileMemory?.bio) ??
+      asText(profileMemory?.vibe_summary) ??
+      nearbyUser.bio,
+    interests: asTextArray(profileMemory?.interests),
+    hobbies: asTextArray(profileMemory?.hobbies),
+    preferences,
+    socialStyle,
+    emotionalStyle,
+  };
+}
+
+async function fetchNearbyUserDetails(
+  nearbyUser: NearbyUser,
+  token?: string | null,
+): Promise<NearbyUser> {
+  try {
+    const response = await getProfileMemory(nearbyUser.id, token);
+    return mergeProfileIntoNearbyUser(
+      nearbyUser,
+      response.profile_memory,
+      response.preference_memory,
+      response.match_preference_memory,
+    );
+  } catch {
+    return nearbyUser;
+  }
 }
 
 function findDisplayName(value: unknown, depth = 0): string {
@@ -1143,6 +1223,8 @@ export default function LocationScreen() {
   const [isLoadingSpaces, setIsLoadingSpaces] = useState(false);
   const [userSpaces, setUserSpaces] = useState<string[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<Space | null>(null);
+  const [selectedNearbyUser, setSelectedNearbyUser] = useState<NearbyUser | null>(null);
+  const [isLoadingNearbyUser, setIsLoadingNearbyUser] = useState(false);
 
   // ─── Pan / drag del stage ──────────────────────────────────────────────────
   const panOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -1363,6 +1445,25 @@ export default function LocationScreen() {
       });
     },
     [router],
+  );
+
+  const handleUserBubblePress = useCallback(
+    async (bubbleId: string) => {
+      const nearbyUserId = bubbleId.replace("user-", "");
+      const nearbyUser = nearbyUsers.find((item) => item.id === nearbyUserId);
+      if (!nearbyUser) return;
+
+      setSelectedBubbleId(bubbleId);
+      setSelectedNearbyUser(nearbyUser);
+      setIsLoadingNearbyUser(true);
+      const enrichedUser = await fetchNearbyUserDetails(nearbyUser, accessToken);
+      setSelectedNearbyUser(enrichedUser);
+      setNearbyUsers((current) =>
+        current.map((item) => (item.id === enrichedUser.id ? enrichedUser : item)),
+      );
+      setIsLoadingNearbyUser(false);
+    },
+    [accessToken, nearbyUsers],
   );
 
   const stopLocationWatcher = useCallback(() => {
@@ -1676,8 +1777,10 @@ export default function LocationScreen() {
               isExpanded={selectedBubbleId === bubble.id}
               onPress={(id) => {
                 if (isDragging.current) return;
-                if (selectedBubbleId === id && bubble.kind === "user") {
-                  setMatchCount((n) => n + 1);
+                if (bubble.kind === "user") {
+                  setMatchCount((n) => (selectedBubbleId === id ? n + 1 : n));
+                  void handleUserBubblePress(id);
+                  return;
                 }
                 // Si es un grupo, abrir modal
                 if (bubble.kind === "place" && id.startsWith("place-")) {
@@ -1831,7 +1934,114 @@ export default function LocationScreen() {
           onOpenChat={() => handleOpenGroupChat(selectedSpace)}
         />
       )}
+
+      {selectedNearbyUser && (
+        <NearbyUserDetailModal
+          nearbyUser={selectedNearbyUser}
+          isLoading={isLoadingNearbyUser}
+          onClose={() => {
+            setSelectedNearbyUser(null);
+            setSelectedBubbleId(null);
+          }}
+        />
+      )}
     </View>
+  );
+}
+
+// ─── Nearby User Detail Modal ─────────────────────────────────────────────────
+
+function DetailTags({ items }: { items?: string[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <View style={styles.detailTags}>
+      {items.slice(0, 6).map((item, index) => (
+        <View key={`${item}-${index}`} style={styles.detailTag}>
+          <Text style={styles.detailTagText}>{item}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function NearbyUserDetailModal({
+  nearbyUser,
+  isLoading,
+  onClose,
+}: {
+  nearbyUser: NearbyUser;
+  isLoading: boolean;
+  onClose: () => void;
+}) {
+  const title = `${nearbyUser.name}${nearbyUser.age ? `, ${nearbyUser.age}` : ""}`;
+
+  return (
+    <Pressable
+      style={StyleSheet.absoluteFill}
+      onPress={onClose}
+      pointerEvents="box-none"
+    >
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: "rgba(0,0,0,0.5)" },
+        ]}
+        pointerEvents="none"
+      />
+      <Pressable
+        style={[styles.modalContent, styles.userModalContent]}
+        onPress={(e) => e.stopPropagation()}
+        pointerEvents="auto"
+      >
+        <View style={styles.userModalHeader}>
+          <View style={styles.userModalAvatar}>
+            {nearbyUser.avatarUri ? (
+              <Image
+                source={{ uri: nearbyUser.avatarUri }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+              />
+            ) : (
+              <Text style={styles.userModalInitials}>{initials(nearbyUser.name)}</Text>
+            )}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modalTitle}>{title}</Text>
+            <Text style={styles.userModalSubtitle}>
+              {nearbyUser.distance ?? nearbyUser.subtitle ?? "cerca"}
+              {nearbyUser.compatibility
+                ? ` · ${Math.round(nearbyUser.compatibility)}% compatible`
+                : ""}
+            </Text>
+          </View>
+        </View>
+
+        {isLoading ? (
+          <Text style={styles.helperText}>Cargando perfil...</Text>
+        ) : null}
+        {nearbyUser.bio ? (
+          <Text style={styles.modalDescription}>{nearbyUser.bio}</Text>
+        ) : null}
+        <DetailTags items={nearbyUser.interests} />
+        <DetailTags items={nearbyUser.hobbies} />
+        {nearbyUser.preferences && nearbyUser.preferences.length > 0 ? (
+          <>
+            <Text style={styles.userModalSection}>Preferencias</Text>
+            <DetailTags items={nearbyUser.preferences} />
+          </>
+        ) : null}
+        {nearbyUser.socialStyle ? (
+          <Text style={styles.userModalLine}>Estilo social: {nearbyUser.socialStyle}</Text>
+        ) : null}
+
+        <Pressable
+          style={[styles.modalButton, styles.modalButtonFull, { backgroundColor: C.rose }]}
+          onPress={onClose}
+        >
+          <Text style={[styles.modalButtonText, { color: C.white }]}>Cerrar</Text>
+        </Pressable>
+      </Pressable>
+    </Pressable>
   );
 }
 
@@ -2535,6 +2745,65 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     shadowOffset: { width: 0, height: 8 },
     elevation: 10,
+  },
+  userModalContent: {
+    marginTop: -210,
+  },
+  userModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  userModalAvatar: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: C.roseTint,
+    borderWidth: 1,
+    borderColor: C.roseBorder,
+  },
+  userModalInitials: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: C.rose,
+  },
+  userModalSubtitle: {
+    fontSize: 12,
+    color: C.inkMid,
+    fontWeight: "600",
+  },
+  userModalSection: {
+    fontSize: 11,
+    color: C.inkMid,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  userModalLine: {
+    fontSize: 13,
+    color: C.inkMid,
+    lineHeight: 18,
+  },
+  detailTags: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  detailTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: C.roseTint,
+    borderWidth: 1,
+    borderColor: C.roseBorder,
+  },
+  detailTagText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: C.rose,
   },
   modalTitle: {
     fontSize: 20,
