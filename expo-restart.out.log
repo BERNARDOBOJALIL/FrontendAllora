@@ -6,3 +6,51 @@ Starting Metro Bundler
 warning: Bundler cache is empty, rebuilding (this may take a minute)
 Waiting on http://localhost:8081
 Logs for your project will appear below.
+Web node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web node_modules\expo-router\entry.js ▓▓▓▓░░░░░░░░░░░░ 25.0% (16/32)
+λ node_modules\expo-router\node\render.js ▓▓▓▓▓░░░░░░░░░░░ 33.1% (256/445)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓░░░░░░░░░░░ 35.8% (248/420)
+λ node_modules\expo-router\node\render.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 63.2% (711/907)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 83.9% ( 939/1025)
+λ node_modules\expo-router\node\render.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 94.1% (1125/1160)
+λ Bundled 11552ms node_modules\expo-router\node\render.js (1241 modules)
+Web Bundled 13550ms node_modules\expo-router\entry.js (1232 modules)
+Web node_modules\expo-router\entry.js ▓▓▓▓░░░░░░░░░░░░ 25.0% ( 46/178)
+λ Bundled 63ms node_modules\expo-router\node\render.js (1 module)
+Web Bundled 840ms node_modules\expo-router\entry.js (1 module)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 87.7% (1017/1086)
+Web Bundled 4732ms node_modules\expo-router\entry.js (1229 modules)
+ LOG  [web] Logs will appear in the browser console
+iOS node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+iOS node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓░░░░░░░░ 50.1% (582/832)
+iOS node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 91.0% (1341/1406)
+iOS Bundled 7915ms node_modules\expo-router\entry.js (1534 modules)
+ WARN  Route "./(tabs)/chat.styles.ts" is missing the required default export. Ensure a React component is exported as default.
+ WARN  [Layout children]: Too many screens defined. Route "chat-mock" is extraneous.
+ WARN  SafeAreaView has been deprecated and will be removed in a future release. Please use 'react-native-safe-area-context' instead. See https://github.com/th3rdwave/react-native-safe-area-context
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+ WARN  Error fetching nearby spaces: [ApiError: Token invalido]
+Web node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+λ Bundled 36ms node_modules\expo-router\node\render.js (1 module)
+Web Bundled 475ms node_modules\expo-router\entry.js (1 module)
+Web Bundled 53ms node_modules\expo-router\entry.js (1 module)
+ LOG  [web] Logs will appear in the browser console

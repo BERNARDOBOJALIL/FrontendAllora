@@ -167,15 +167,13 @@ function normalizePotentialMatch(
   const record = asRecord(payload);
   if (!record) return null;
   const userId =
-    (currentUserId &&
-    asString(record.user_a_id) &&
-    asString(record.user_b_id)
+    (currentUserId && asString(record.user_a_id) && asString(record.user_b_id)
       ? asString(record.user_a_id) === currentUserId
         ? asString(record.user_b_id)
         : asString(record.user_b_id) === currentUserId
           ? asString(record.user_a_id)
-          : ''
-      : '') ||
+          : ""
+      : "") ||
     asString(record.user_id) ||
     asString(record.userId) ||
     asString(record.candidate_id) ||

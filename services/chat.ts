@@ -1,10 +1,10 @@
-import { apiRequest } from '@/services/api';
+import { apiRequest } from "@/services/api";
 
 export type Conversation = {
   id: string;
   participant_ids: string[];
   match_id: string | null;
-  conversation_type?: 'DIRECT' | 'GROUP';
+  conversation_type?: "DIRECT" | "GROUP";
   name?: string | null;
   title?: string | null;
   space_id?: string | null;
@@ -21,8 +21,8 @@ export type Message = {
   sender_id: string;
   receiver_id?: string | null;
   content: string;
-  message_type: 'TEXT';
-  status: 'SENT' | 'DELIVERED' | 'READ';
+  message_type: "TEXT";
+  status: "SENT" | "DELIVERED" | "READ";
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
@@ -41,17 +41,17 @@ export type CreateConversationBody = {
 
 export type SendMessageBody = {
   content: string;
-  message_type?: 'TEXT';
+  message_type?: "TEXT";
 };
 
 export async function getConversations(token: string) {
-  return apiRequest<Conversation[]>('/chat/conversations', {
+  return apiRequest<Conversation[]>("/chat/conversations", {
     token,
   });
 }
 
 export async function getGroupConversations(token: string) {
-  return apiRequest<Conversation[]>('/chat/group-conversations', {
+  return apiRequest<Conversation[]>("/chat/group-conversations", {
     token,
   });
 }
@@ -66,8 +66,8 @@ export async function createConversation(
     match_id: matchId === undefined ? null : matchId,
   };
 
-  return apiRequest<Conversation>('/chat/conversations', {
-    method: 'POST',
+  return apiRequest<Conversation>("/chat/conversations", {
+    method: "POST",
     token,
     body,
   });
@@ -79,11 +79,11 @@ export async function getMessages(
   token: string,
 ) {
   const query = new URLSearchParams();
-  if (params.limit !== undefined) query.set('limit', String(params.limit));
-  if (params.skip !== undefined) query.set('skip', String(params.skip));
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.skip !== undefined) query.set("skip", String(params.skip));
 
   const path = `/chat/conversations/${conversationId}/messages${
-    query.toString() ? `?${query.toString()}` : ''
+    query.toString() ? `?${query.toString()}` : ""
   }`;
 
   return apiRequest<Message[]>(path, {
@@ -97,11 +97,11 @@ export async function getGroupMessages(
   token: string,
 ) {
   const query = new URLSearchParams();
-  if (params.limit !== undefined) query.set('limit', String(params.limit));
-  if (params.skip !== undefined) query.set('skip', String(params.skip));
+  if (params.limit !== undefined) query.set("limit", String(params.limit));
+  if (params.skip !== undefined) query.set("skip", String(params.skip));
 
   const path = `/chat/group-conversations/${conversationId}/messages${
-    query.toString() ? `?${query.toString()}` : ''
+    query.toString() ? `?${query.toString()}` : ""
   }`;
 
   return apiRequest<Message[]>(path, {
@@ -116,11 +116,11 @@ export async function sendMessage(
 ) {
   const body: SendMessageBody = {
     content,
-    message_type: 'TEXT',
+    message_type: "TEXT",
   };
 
   return apiRequest<Message>(`/chat/conversations/${conversationId}/messages`, {
-    method: 'POST',
+    method: "POST",
     token,
     body,
   });
@@ -133,33 +133,39 @@ export async function sendGroupMessage(
 ) {
   const body: SendMessageBody = {
     content,
-    message_type: 'TEXT',
+    message_type: "TEXT",
   };
 
-  return apiRequest<Message>(`/chat/group-conversations/${conversationId}/messages`, {
-    method: 'POST',
-    token,
-    body,
-  });
+  return apiRequest<Message>(
+    `/chat/group-conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      token,
+      body,
+    },
+  );
 }
 
-export async function markConversationAsRead(conversationId: string, token: string) {
+export async function markConversationAsRead(
+  conversationId: string,
+  token: string,
+) {
   return apiRequest<void>(`/chat/conversations/${conversationId}/read`, {
-    method: 'POST',
+    method: "POST",
     token,
   });
 }
 
 export async function markOnline(token: string) {
-  return apiRequest<void>('/chat/presence/online', {
-    method: 'POST',
+  return apiRequest<void>("/chat/presence/online", {
+    method: "POST",
     token,
   });
 }
 
 export async function markOffline(token: string) {
-  return apiRequest<void>('/chat/presence/offline', {
-    method: 'POST',
+  return apiRequest<void>("/chat/presence/offline", {
+    method: "POST",
     token,
   });
 }

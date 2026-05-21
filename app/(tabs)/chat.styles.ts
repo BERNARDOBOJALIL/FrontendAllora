@@ -1,21 +1,21 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet } from "react-native";
 
 const C = {
-  bg: '#FDFCFB',
-  white: '#FFFFFF',
-  ink: '#1A1A2E',
-  inkMid: 'rgba(26,26,46,0.62)',
-  inkLight: 'rgba(26,26,46,0.36)',
-  inkFaint: 'rgba(26,26,46,0.08)',
-  rose: '#FF4E7A',
-  roseDeep: '#E83266',
-  roseTint: '#FFE8EE',
-  roseSoft: '#FFF4F7',
-  roseBorder: '#FFD1DD',
-  lav: '#8B5CF6',
-  lavTint: '#F3EEFF',
-  tealTint: '#E6FAFA',
-  danger: '#B91C1C',
+  bg: "#FDFCFB",
+  white: "#FFFFFF",
+  ink: "#1A1A2E",
+  inkMid: "rgba(26,26,46,0.62)",
+  inkLight: "rgba(26,26,46,0.36)",
+  inkFaint: "rgba(26,26,46,0.08)",
+  rose: "#FF4E7A",
+  roseDeep: "#E83266",
+  roseTint: "#FFE8EE",
+  roseSoft: "#FFF4F7",
+  roseBorder: "#FFD1DD",
+  lav: "#8B5CF6",
+  lavTint: "#F3EEFF",
+  tealTint: "#E6FAFA",
+  danger: "#B91C1C",
 };
 
 export const styles = StyleSheet.create({
@@ -31,22 +31,22 @@ export const styles = StyleSheet.create({
   },
   header: {
     paddingBottom: 14,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
     gap: 14,
   },
   kicker: {
     color: C.rose,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: "900",
     letterSpacing: 3,
   },
   title: {
     marginTop: 2,
     color: C.ink,
     fontSize: 34,
-    fontWeight: '900',
+    fontWeight: "900",
     lineHeight: 38,
   },
   headerBadge: {
@@ -54,9 +54,9 @@ export const styles = StyleSheet.create({
     height: 34,
     borderRadius: 17,
     paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 7,
     borderWidth: 1,
     borderColor: C.roseBorder,
@@ -71,7 +71,7 @@ export const styles = StyleSheet.create({
   },
   headerBadgeText: {
     color: C.ink,
-    fontWeight: '900',
+    fontWeight: "900",
     fontSize: 13,
   },
   section: {
@@ -94,8 +94,8 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.roseBorder,
     backgroundColor: C.white,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 9,
   },
   conversationItemSelected: {
@@ -107,15 +107,15 @@ export const styles = StyleSheet.create({
     height: 38,
     borderRadius: 19,
     backgroundColor: C.roseTint,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarGroup: {
     backgroundColor: C.lavTint,
   },
   avatarText: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     color: C.ink,
   },
   conversationCardBody: {
@@ -123,14 +123,14 @@ export const styles = StyleSheet.create({
     minWidth: 0,
   },
   conversationTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 5,
   },
   conversationTitle: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: "900",
     color: C.ink,
   },
   conversationType: {
@@ -138,7 +138,7 @@ export const styles = StyleSheet.create({
     marginBottom: 2,
     color: C.roseDeep,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   conversationSnippet: {
     fontSize: 11,
@@ -150,14 +150,14 @@ export const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     backgroundColor: C.rose,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 6,
   },
   unreadBadgeText: {
     color: C.white,
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: "900",
   },
   chatArea: {
     flex: 1,
@@ -168,7 +168,7 @@ export const styles = StyleSheet.create({
     backgroundColor: C.white,
     borderWidth: 1,
     borderColor: C.roseBorder,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   conversationHeader: {
     minHeight: 62,
@@ -180,8 +180,8 @@ export const styles = StyleSheet.create({
   },
   activeConversationTitle: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 11,
   },
   conversationHeaderCopy: {
@@ -193,17 +193,17 @@ export const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     backgroundColor: C.tealTint,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarSmallText: {
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: "900",
     color: C.ink,
   },
   conversationHeaderTitle: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: "900",
     color: C.ink,
   },
   conversationHeaderMeta: {
@@ -232,16 +232,16 @@ export const styles = StyleSheet.create({
   participantChipText: {
     color: C.roseDeep,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   loadingMessages: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   messageList: {
     flex: 1,
-    backgroundColor: '#FFFCFB',
+    backgroundColor: "#FFFCFB",
   },
   messageListContent: {
     paddingHorizontal: 14,
@@ -255,37 +255,37 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.roseBorder,
     backgroundColor: C.white,
-    alignItems: 'center',
+    alignItems: "center",
   },
   emptyStateText: {
     color: C.inkMid,
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
   },
   emptyStateTitle: {
     marginBottom: 6,
     color: C.ink,
     fontSize: 16,
-    fontWeight: '900',
-    textAlign: 'center',
+    fontWeight: "900",
+    textAlign: "center",
   },
   errorText: {
     color: C.danger,
     fontSize: 13,
-    textAlign: 'center',
+    textAlign: "center",
   },
   messageRow: {
     marginBottom: 10,
-    maxWidth: '82%',
+    maxWidth: "82%",
   },
   messageRowSent: {
-    alignSelf: 'flex-end',
-    alignItems: 'flex-end',
+    alignSelf: "flex-end",
+    alignItems: "flex-end",
     marginLeft: 48,
   },
   messageRowReceived: {
-    alignSelf: 'flex-start',
-    alignItems: 'flex-start',
+    alignSelf: "flex-start",
+    alignItems: "flex-start",
     marginRight: 48,
   },
   messageSender: {
@@ -293,7 +293,7 @@ export const styles = StyleSheet.create({
     marginLeft: 4,
     color: C.inkLight,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: "800",
   },
   messageContainer: {
     paddingHorizontal: 14,
@@ -326,16 +326,16 @@ export const styles = StyleSheet.create({
   },
   messageTextSent: {
     color: C.white,
-    textAlign: 'right',
+    textAlign: "right",
   },
   messageMeta: {
     marginTop: 5,
     fontSize: 10,
     color: C.inkLight,
-    textAlign: 'right',
+    textAlign: "right",
   },
   messageMetaSent: {
-    color: 'rgba(255,255,255,0.88)',
+    color: "rgba(255,255,255,0.88)",
   },
   composer: {
     padding: 12,
@@ -345,9 +345,9 @@ export const styles = StyleSheet.create({
   },
   composerRow: {
     minHeight: 50,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
-    alignItems: 'center',
+    alignItems: "center",
     padding: 5,
     borderRadius: 18,
     backgroundColor: C.bg,
@@ -366,8 +366,8 @@ export const styles = StyleSheet.create({
     height: 40,
     borderRadius: 14,
     backgroundColor: C.rose,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 14,
   },
   buttonDisabled: {
@@ -376,6 +376,6 @@ export const styles = StyleSheet.create({
   sendButtonText: {
     color: C.white,
     fontSize: 14,
-    fontWeight: '900',
+    fontWeight: "900",
   },
 });

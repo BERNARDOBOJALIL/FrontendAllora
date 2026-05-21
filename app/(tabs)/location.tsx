@@ -4,33 +4,36 @@ import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Animated,
-    Easing,
-    PanResponder,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    useWindowDimensions,
-    View,
+  Animated,
+  Easing,
+  PanResponder,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
 } from "react-native";
 
 import { useAuth } from "@/providers/auth-context";
+import { ApiError } from "@/services/api";
 import {
-    createSpace,
-    getNearbySpaces,
-    joinSpace,
-    leaveSpace,
-    type Space,
+  createSpace,
+  getNearbySpaces,
+  joinSpace,
+  leaveSpace,
+  type Space,
 } from "@/services/groups";
-import { ApiError } from '@/services/api';
 import {
-    LocationWebSocketService,
-    SocketStatus,
+  LocationWebSocketService,
+  SocketStatus,
 } from "@/services/location-websocket";
-import { getProfileMemory } from "@/services/profile";
 import { createMatch } from "@/services/match-service";
-import { rememberUserDisplayNames, setUserDisplayName } from "@/services/user-display-names";
+import { getProfileMemory } from "@/services/profile";
+import {
+  rememberUserDisplayNames,
+  setUserDisplayName,
+} from "@/services/user-display-names";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -247,13 +250,17 @@ function mergeProfileIntoNearbyUser(
   preferenceMemory: Record<string, unknown> | null,
   matchPreferenceMemory: Record<string, unknown> | null,
 ): NearbyUser {
-  if (!profileMemory && !preferenceMemory && !matchPreferenceMemory) return nearbyUser;
-  const favoriteEnvironments = asTextArray(profileMemory?.favorite_environments);
+  if (!profileMemory && !preferenceMemory && !matchPreferenceMemory)
+    return nearbyUser;
+  const favoriteEnvironments = asTextArray(
+    profileMemory?.favorite_environments,
+  );
   const socialStyle = asText(profileMemory?.social_style);
   const emotionalStyle = asText(profileMemory?.emotional_style);
   const minAge = Number(matchPreferenceMemory?.edad_minima) || null;
   const maxAge = Number(matchPreferenceMemory?.edad_maxima) || null;
-  const maxDistance = Number(matchPreferenceMemory?.distancia_maxima_km) || null;
+  const maxDistance =
+    Number(matchPreferenceMemory?.distancia_maxima_km) || null;
   const preferences = [
     ...favoriteEnvironments,
     socialStyle,
@@ -270,8 +277,11 @@ function mergeProfileIntoNearbyUser(
   return {
     ...nearbyUser,
     name:
-      asText(profileMemory?.nombre ?? profileMemory?.name ?? profileMemory?.full_name) ??
-      nearbyUser.name,
+      asText(
+        profileMemory?.nombre ??
+          profileMemory?.name ??
+          profileMemory?.full_name,
+      ) ?? nearbyUser.name,
     age: Number(profileMemory?.edad ?? profileMemory?.age) || nearbyUser.age,
     bio:
       asText(profileMemory?.bio) ??
@@ -1228,10 +1238,13 @@ export default function LocationScreen() {
   const [isLoadingSpaces, setIsLoadingSpaces] = useState(false);
   const [userSpaces, setUserSpaces] = useState<string[]>([]);
   const [selectedSpace, setSelectedSpace] = useState<Space | null>(null);
-  const [selectedNearbyUser, setSelectedNearbyUser] = useState<NearbyUser | null>(null);
+  const [selectedNearbyUser, setSelectedNearbyUser] =
+    useState<NearbyUser | null>(null);
   const [isLoadingNearbyUser, setIsLoadingNearbyUser] = useState(false);
   const [isSendingNearbyMatch, setIsSendingNearbyMatch] = useState(false);
-  const [sentNearbyMatchRequests, setSentNearbyMatchRequests] = useState<Record<string, boolean>>({});
+  const [sentNearbyMatchRequests, setSentNearbyMatchRequests] = useState<
+    Record<string, boolean>
+  >({});
 
   // ─── Pan / drag del stage ──────────────────────────────────────────────────
   const panOffset = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
@@ -1334,46 +1347,46 @@ export default function LocationScreen() {
     [accessToken, user?.id],
   );
 
-    // Enriquecer nombres genéricos o faltantes de espacios consultando el servicio
-    useEffect(() => {
-      let mounted = true;
-      const genericNamePattern = /^(place|lugar)\s*\d+$/i;
-      const candidates = nearbySpaces.filter(
-        (s) => !s.name || genericNamePattern.test(String(s.name)),
-      );
-      if (candidates.length === 0) return;
+  // Enriquecer nombres genéricos o faltantes de espacios consultando el servicio
+  useEffect(() => {
+    let mounted = true;
+    const genericNamePattern = /^(place|lugar)\s*\d+$/i;
+    const candidates = nearbySpaces.filter(
+      (s) => !s.name || genericNamePattern.test(String(s.name)),
+    );
+    if (candidates.length === 0) return;
 
-      (async () => {
-        try {
-          const { getSpace } = await import('@/services/groups');
-          await Promise.all(
-            candidates.map(async (space) => {
-              try {
-                const fresh = await getSpace(
-                  space.space_id,
-                  accessToken ?? undefined,
-                  user?.id,
+    (async () => {
+      try {
+        const { getSpace } = await import("@/services/groups");
+        await Promise.all(
+          candidates.map(async (space) => {
+            try {
+              const fresh = await getSpace(
+                space.space_id,
+                accessToken ?? undefined,
+                user?.id,
+              );
+              if (!mounted) return;
+              if (fresh && fresh.name && fresh.name.trim()) {
+                setNearbySpaces((prev) =>
+                  prev.map((s) => (s.space_id === space.space_id ? fresh : s)),
                 );
-                if (!mounted) return;
-                if (fresh && fresh.name && fresh.name.trim()) {
-                  setNearbySpaces((prev) =>
-                    prev.map((s) => (s.space_id === space.space_id ? fresh : s)),
-                  );
-                }
-              } catch {
-                // ignore per-space failures
               }
-            }),
-          );
-        } catch {
-          // ignore
-        }
-      })();
+            } catch {
+              // ignore per-space failures
+            }
+          }),
+        );
+      } catch {
+        // ignore
+      }
+    })();
 
-      return () => {
-        mounted = false;
-      };
-    }, [nearbySpaces, accessToken, user?.id]);
+    return () => {
+      mounted = false;
+    };
+  }, [nearbySpaces, accessToken, user?.id]);
 
   const handleCreateSpace = useCallback(
     async (
@@ -1386,26 +1399,30 @@ export default function LocationScreen() {
       if (!coords || !user?.id || !accessToken) return;
       // Client-side validation
       if (!name || !name.trim()) {
-        setErrorMessage('El nombre del grupo es requerido.');
+        setErrorMessage("El nombre del grupo es requerido.");
         return;
       }
-      if (typeof radiusKm !== 'number' || !isFinite(radiusKm) || radiusKm <= 0) {
-        setErrorMessage('Radio inválido para el grupo.');
+      if (
+        typeof radiusKm !== "number" ||
+        !isFinite(radiusKm) ||
+        radiusKm <= 0
+      ) {
+        setErrorMessage("Radio inválido para el grupo.");
         return;
       }
 
       const payload = {
         user_id: user.id,
         name: name.trim(),
-        description: description ?? '',
-        photo_base64: photoBase64 ?? '',
+        description: description ?? "",
+        photo_base64: photoBase64 ?? "",
         lat: coords.lat,
         lng: coords.lng,
         radius_km: radiusKm,
       };
 
       try {
-        console.debug('Creating space with payload:', payload);
+        console.debug("Creating space with payload:", payload);
         const newSpace = await createSpace(payload, accessToken, user.id);
         setNearbySpaces((prev) => [...prev, newSpace]);
         setUserSpaces((prev) => [...prev, newSpace.space_id]);
@@ -1413,12 +1430,12 @@ export default function LocationScreen() {
         await fetchNearbySpaces({ force: true });
       } catch (err) {
         // Log and show detailed errors when possible
-        console.error('Error creating space:', err);
+        console.error("Error creating space:", err);
         try {
           if (err instanceof ApiError) {
-            console.error('ApiError details:', err.details);
+            console.error("ApiError details:", err.details);
             const details = err.details;
-            if (details && typeof details === 'object') {
+            if (details && typeof details === "object") {
               setErrorMessage(
                 String((details as any).detail ?? JSON.stringify(details)),
               );
@@ -1429,7 +1446,9 @@ export default function LocationScreen() {
           // ignore
         }
 
-        setErrorMessage(err instanceof Error ? err.message : 'Error creando grupo');
+        setErrorMessage(
+          err instanceof Error ? err.message : "Error creando grupo",
+        );
       }
     },
     [accessToken, fetchNearbySpaces, user?.id],
@@ -1446,7 +1465,9 @@ export default function LocationScreen() {
           await fetchNearbySpaces({ force: true });
           const refreshed = nearbySpaces.find((s) => s.space_id === spaceId);
           if (!refreshed) {
-            setErrorMessage('No se encontró el grupo en el servidor (posible caducidad).');
+            setErrorMessage(
+              "No se encontró el grupo en el servidor (posible caducidad).",
+            );
             return;
           }
         }
@@ -1458,23 +1479,33 @@ export default function LocationScreen() {
           user.id,
         );
 
-        setUserSpaces((prev) => (prev.includes(spaceId) ? prev : [...prev, spaceId]));
-        setNearbySpaces((prev) => prev.map((space) => (space.space_id === spaceId ? updatedSpace : space)));
-        setSelectedSpace((current) => (current?.space_id === spaceId ? updatedSpace : current));
+        setUserSpaces((prev) =>
+          prev.includes(spaceId) ? prev : [...prev, spaceId],
+        );
+        setNearbySpaces((prev) =>
+          prev.map((space) =>
+            space.space_id === spaceId ? updatedSpace : space,
+          ),
+        );
+        setSelectedSpace((current) =>
+          current?.space_id === spaceId ? updatedSpace : current,
+        );
         await fetchNearbySpaces({ force: true });
       } catch (err) {
-        console.error('Error joining space:', err);
+        console.error("Error joining space:", err);
         if (err instanceof ApiError && err.status === 404) {
           try {
             await fetchNearbySpaces({ force: true });
           } catch {
             // ignore
           }
-          setErrorMessage('El grupo ya no existe o caducó. Lista actualizada.');
+          setErrorMessage("El grupo ya no existe o caducó. Lista actualizada.");
           return;
         }
 
-        setErrorMessage(err instanceof Error ? err.message : 'Error uniéndose al grupo');
+        setErrorMessage(
+          err instanceof Error ? err.message : "Error uniéndose al grupo",
+        );
       }
     },
     [accessToken, fetchNearbySpaces, user?.id, nearbySpaces],
@@ -1551,10 +1582,15 @@ export default function LocationScreen() {
       setSelectedBubbleId(bubbleId);
       setSelectedNearbyUser(nearbyUser);
       setIsLoadingNearbyUser(true);
-      const enrichedUser = await fetchNearbyUserDetails(nearbyUser, accessToken);
+      const enrichedUser = await fetchNearbyUserDetails(
+        nearbyUser,
+        accessToken,
+      );
       setSelectedNearbyUser(enrichedUser);
       setNearbyUsers((current) =>
-        current.map((item) => (item.id === enrichedUser.id ? enrichedUser : item)),
+        current.map((item) =>
+          item.id === enrichedUser.id ? enrichedUser : item,
+        ),
       );
       setIsLoadingNearbyUser(false);
     },
@@ -2166,7 +2202,9 @@ function NearbyUserDetailModal({
                 contentFit="cover"
               />
             ) : (
-              <Text style={styles.userModalInitials}>{initials(nearbyUser.name)}</Text>
+              <Text style={styles.userModalInitials}>
+                {initials(nearbyUser.name)}
+              </Text>
             )}
           </View>
           <View style={{ flex: 1 }}>
@@ -2195,7 +2233,9 @@ function NearbyUserDetailModal({
           </>
         ) : null}
         {nearbyUser.socialStyle ? (
-          <Text style={styles.userModalLine}>Estilo social: {nearbyUser.socialStyle}</Text>
+          <Text style={styles.userModalLine}>
+            Estilo social: {nearbyUser.socialStyle}
+          </Text>
         ) : null}
 
         <Pressable
@@ -2204,7 +2244,9 @@ function NearbyUserDetailModal({
             styles.modalButtonFull,
             { backgroundColor: isMatchSent ? C.inkFaint : C.rose },
           ]}
-          onPress={() => { void onMatch(nearbyUser.id); }}
+          onPress={() => {
+            void onMatch(nearbyUser.id);
+          }}
           disabled={isLoading || isMatchSent || isMatchLoading}
         >
           <Text
@@ -2216,16 +2258,22 @@ function NearbyUserDetailModal({
             {isMatchLoading
               ? "Enviando..."
               : isMatchSent
-              ? "Solicitud enviada"
-              : "Enviar match"}
+                ? "Solicitud enviada"
+                : "Enviar match"}
           </Text>
         </Pressable>
 
         <Pressable
-          style={[styles.modalButton, styles.modalButtonFull, { backgroundColor: C.rose }]}
+          style={[
+            styles.modalButton,
+            styles.modalButtonFull,
+            { backgroundColor: C.rose },
+          ]}
           onPress={onClose}
         >
-          <Text style={[styles.modalButtonText, { color: C.white }]}>Cerrar</Text>
+          <Text style={[styles.modalButtonText, { color: C.white }]}>
+            Cerrar
+          </Text>
         </Pressable>
       </Pressable>
     </Pressable>
