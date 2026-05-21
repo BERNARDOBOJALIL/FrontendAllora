@@ -29,6 +29,7 @@ import {
 } from "@/services/location-websocket";
 import { getProfileMemory } from "@/services/profile";
 import { createMatch } from "@/services/match-service";
+import { rememberUserDisplayNames, setUserDisplayName } from "@/services/user-display-names";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1572,6 +1573,7 @@ export default function LocationScreen() {
             },
             lastSeen: now,
           });
+          setUserDisplayName(userItem.id, resolvedName);
         }
 
         const freshUsers = Array.from(nearbyUserCacheRef.current.values())
@@ -1579,6 +1581,7 @@ export default function LocationScreen() {
           .filter((entry) => !isSelfNearbyUser(entry.user, selfTokens))
           .map((entry) => entry.user);
 
+        rememberUserDisplayNames(freshUsers);
         nearbyUserCacheRef.current.forEach((entry, id) => {
           if (now - entry.lastSeen > 25000) {
             nearbyUserCacheRef.current.delete(id);

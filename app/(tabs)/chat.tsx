@@ -29,11 +29,11 @@ import {
     sendMessage,
 } from "@/services/chat";
 import { getProfileMemory } from "@/services/profile";
-
-const AUTH_SERVICE_URL =
-  process.env.EXPO_PUBLIC_AUTH_SERVICE_URL?.trim() ||
-  process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
-  "http://localhost:8000";
+import {
+  fetchPublicUserDisplayName,
+  getUserDisplayName,
+  setUserDisplayName,
+} from "@/services/user-display-names";
 
 type UserNameMap = Record<string, string>;
 type NameCandidate = { id: string; name: string };
@@ -161,37 +161,23 @@ function collectNameCandidates(value: unknown): NameCandidate[] {
 }
 
 async function fetchUserDisplayName(userId: string, token?: string) {
+  const cachedName = getUserDisplayName(userId);
+  if (cachedName) return cachedName;
+
   try {
     const profile = await getProfileMemory(userId, token);
     const name = extractProfileName(profile.profile_memory ?? profile.raw);
-    if (name && name !== userId) return name;
-  } catch {
-    // Fall through to the auth-service lookup on native builds.
-  }
-
-  if (Platform.OS === "web") return "";
-
-  const baseUrl = AUTH_SERVICE_URL.replace(/\/$/, "");
-  const encodedId = encodeURIComponent(userId);
-  try {
-    const response = await fetch(`${baseUrl}/users/${encodedId}`, {
-      headers: {
-        Accept: "application/json",
-        ...(token
-          ? { Authorization: `Bearer ${token.replace(/^Bearer\s+/i, "")}` }
-          : {}),
-      },
-    });
-
-    if (response.ok) {
-      const name = extractProfileName(await response.json());
-      if (name && name !== userId) return name;
+    if (name && name !== userId) {
+      setUserDisplayName(userId, name);
+      return name;
     }
   } catch {
-    // Fall through to the profile-agent lookup.
+    // Fall through to the public auth-service lookup.
   }
 
-  return "";
+  const publicName = await fetchPublicUserDisplayName(userId, token);
+  if (publicName) setUserDisplayName(userId, publicName);
+  return publicName;
 }
 
 function isGroupConversation(conversation: Conversation) {
@@ -322,6 +308,8 @@ export default function ChatScreen() {
   const nameForUser = useCallback(
     (userId: string) => {
       if (userId === user?.id) return user?.nombre ?? "Tu";
+      const cachedName = getUserDisplayName(userId);
+      if (cachedName) return cachedName;
       const knownName = userNames[userId]?.trim();
       if (knownName) return knownName;
       return "Usuario";
@@ -336,6 +324,7 @@ export default function ChatScreen() {
         collectNameCandidates(value).forEach(({ id, name }) => {
           if (id && name && id !== user?.id) {
             nextNames[id] = name;
+            setUserDisplayName(id, name);
           }
         });
       });
@@ -370,6 +359,7 @@ export default function ChatScreen() {
           try {
             const name = await fetchUserDisplayName(id, token);
             if (name) {
+              setUserDisplayName(id, name);
               setUserNames((current) => ({ ...current, [id]: name }));
             }
           } catch {
@@ -551,6 +541,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!user?.id || !user.nombre) return;
+    setUserDisplayName(user.id, user.nombre);
     setUserNames((current) => ({ ...current, [user.id]: user.nombre }));
   }, [user?.id, user?.nombre]);
 
@@ -599,6 +590,7 @@ export default function ChatScreen() {
         .then((name) => {
           fetchedNameIdsRef.current.add(id);
           if (!name) return;
+          setUserDisplayName(id, name);
           setUserNames((current) => ({ ...current, [id]: name }));
         })
         .catch(() => {

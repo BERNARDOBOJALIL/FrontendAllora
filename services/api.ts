@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = 'http://192.168.1.81:8000';
+const DEFAULT_API_BASE_URL = 'http://192.168.0.253:8000';
 
 export class ApiError extends Error {
   status: number;
@@ -26,12 +26,18 @@ type ApiRequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   token?: string;
   body?: unknown;
+  baseUrl?: string;
+  headers?: Record<string, string>;
 };
 
 export async function apiRequest<T>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<T> {
+  const baseUrl = options.baseUrl?.trim() || API_BASE_URL;
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
   const headers: Record<string, string> = {
     Accept: 'application/json',
   };
@@ -44,7 +50,9 @@ export async function apiRequest<T>(
     headers.Authorization = `Bearer ${options.token}`;
   }
 
-  const response = await fetch(buildApiUrl(path), {
+  Object.assign(headers, options.headers);
+
+  const response = await fetch(`${cleanBaseUrl}${cleanPath}`, {
     method: options.method ?? 'GET',
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),

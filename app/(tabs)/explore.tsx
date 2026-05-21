@@ -5,7 +5,6 @@ import {
   Animated,
   FlatList,
   Image,
-  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -15,8 +14,14 @@ import {
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { useAuth } from '@/providers/auth-context';
+import { ApiError } from '@/services/api';
+import {
+  createConversation,
+  getConversations,
+} from '@/services/chat';
 import {
   createMatch,
+  MatchServiceError,
   getUserMatches,
   getPotentialMatches,
   syncMatchPayload,
@@ -25,6 +30,11 @@ import {
   type PotentialMatch,
 } from '@/services/match-service';
 import { getMatchPayload, getProfileMemory } from '@/services/profile';
+import {
+  fetchPublicUserDisplayName,
+  getUserDisplayName,
+  setUserDisplayName,
+} from '@/services/user-display-names';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,15 +69,9 @@ interface EnrichedRequest extends MatchResponse {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Fetches the user profile from your auth-service.
-// Adjust the URL to match your EXPO_PUBLIC_AUTH_SERVICE_URL env var.
-const AUTH_SERVICE_URL =
-  process.env.EXPO_PUBLIC_AUTH_SERVICE_URL ?? 'http://localhost:8000';
-
-function bearer(token?: string | null): Record<string, string> {
-  if (!token) return {};
-  return { Authorization: `Bearer ${token.trim().replace(/^Bearer\s+/i, '')}` };
-}
+const MATCH_PAYLOAD_ENDPOINT_ENABLED =
+  process.env.EXPO_PUBLIC_MATCH_PAYLOAD_ENDPOINT_ENABLED === 'true';
+const AUTO_SHARE_POTENTIAL_MATCHES = false;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -86,53 +90,102 @@ function asStringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function normalizeProfile(payload: unknown): CandidateProfile | null {
-  const record = asRecord(payload);
-  if (!record) return null;
-  const id =
-    asString(record.id) ??
-    asString(record.user_id) ??
-    asString(record.userId) ??
-    asString(record._id);
-  if (!id) return null;
+function readStringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
 
-  const ubicacion = asRecord(record.ubicacion ?? record.location);
+function findDisplayName(value: unknown, depth = 0): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 3) {
+    return '';
+  }
 
-  return {
-    id,
-    nombre: asString(record.nombre ?? record.name ?? record.full_name) ?? 'Usuario',
-    edad: Number(record.edad ?? record.age) || 0,
-    fotos: asStringArray(record.fotos ?? record.photos ?? record.photo_urls),
-    bio: asString(record.bio ?? record.vibe_summary),
-    intereses: asStringArray(record.intereses ?? record.interests),
-    hobbies: asStringArray(record.hobbies),
-    ubicacion: ubicacion
-      ? {
-          ciudad: asString(ubicacion.ciudad ?? ubicacion.city),
-          lat: Number(ubicacion.lat ?? ubicacion.latitude) || undefined,
-          lng: Number(ubicacion.lng ?? ubicacion.longitude) || undefined,
-        }
-      : undefined,
-  };
+  const record = value as Record<string, unknown>;
+  const primaryKeys = [
+    'name',
+    'user_name',
+    'userName',
+    'nombre',
+    'nombre_usuario',
+    'nombreUsuario',
+    'display_name',
+    'displayName',
+    'full_name',
+    'fullName',
+    'real_name',
+    'realName',
+    'username',
+    'nickname',
+    'alias',
+    'handle',
+    'nombre_completo',
+    'nombreCompleto',
+  ];
+
+  for (const key of primaryKeys) {
+    const direct = readStringField(record, key);
+    if (direct) return direct;
+  }
+
+  const firstName =
+    readStringField(record, 'first_name') ||
+    readStringField(record, 'firstName') ||
+    readStringField(record, 'firstname');
+  const lastName =
+    readStringField(record, 'last_name') ||
+    readStringField(record, 'lastName') ||
+    readStringField(record, 'lastname');
+  const combined = `${firstName} ${lastName}`.trim();
+  if (combined) return combined;
+
+  for (const key of ['profile', 'user', 'account', 'person', 'identity', 'data', 'payload', 'result']) {
+    const nested = findDisplayName(record[key], depth + 1);
+    if (nested) return nested;
+  }
+
+  for (const nestedValue of Object.values(record)) {
+    const nested = findDisplayName(nestedValue, depth + 1);
+    if (nested) return nested;
+  }
+
+  return '';
+}
+
+function isGenericDisplayName(value?: string | null): boolean {
+  if (!value) return true;
+  return ['usuario', 'persona'].includes(
+    value
+      .trim()
+      .toLocaleLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, ''),
+  );
+}
+
+function chooseDisplayName(...values: (string | undefined | null)[]): string {
+  for (const value of values) {
+    if (value && !isGenericDisplayName(value)) return value;
+  }
+  return '';
 }
 
 function mergeAgentProfile(
   base: CandidateProfile | null,
   userId: string,
   agentProfile: Record<string, unknown> | null,
+  fallbackDisplayName?: string | null,
 ): CandidateProfile | null {
-  if (!base && !agentProfile) return null;
+  if (!base && !agentProfile && !asString(fallbackDisplayName)) return null;
   const location = asRecord(agentProfile?.location);
   const intereses = asStringArray(agentProfile?.interests);
   const hobbies = asStringArray(agentProfile?.hobbies);
   const vibeSummary = asString(agentProfile?.vibe_summary);
+  const agentDisplayName = agentProfile ? findDisplayName(agentProfile) : '';
+  const baseName = isGenericDisplayName(base?.nombre) ? '' : base?.nombre;
 
   return {
     id: base?.id ?? userId,
-    nombre:
-      asString(agentProfile?.nombre ?? agentProfile?.name ?? agentProfile?.full_name) ??
-      base?.nombre ??
-      'Usuario',
+    nombre: chooseDisplayName(agentDisplayName, baseName, asString(fallbackDisplayName)),
     edad: Number(agentProfile?.edad ?? agentProfile?.age ?? base?.edad) || 0,
     fotos: base?.fotos ?? [],
     bio: asString(agentProfile?.bio) ?? vibeSummary ?? base?.bio,
@@ -154,79 +207,98 @@ function mergeAgentProfile(
   };
 }
 
-function normalizeUsers(payload: unknown): CandidateProfile[] {
-  const record = asRecord(payload);
-  const source =
-    Array.isArray(payload)
-      ? payload
-      : Array.isArray(record?.users)
-        ? record.users
-        : Array.isArray(record?.items)
-          ? record.items
-          : Array.isArray(record?.data)
-            ? record.data
-            : [];
-
-  return source
-    .map(normalizeProfile)
-    .filter((profile): profile is CandidateProfile => Boolean(profile));
+function getPotentialMatchDisplayName(match: PotentialMatch): string {
+  return chooseDisplayName(
+    getUserDisplayName(match.user_id),
+    asString(match.display_name),
+    findDisplayName(match),
+  );
 }
 
-async function fetchProfile(userId: string, token?: string | null): Promise<CandidateProfile | null> {
-  const agentResponse = await getProfileMemory(userId, token).catch(() => null);
-  let authProfile: CandidateProfile | null = null;
+function getPotentialMatchUserId(match: PotentialMatch, currentUserId?: string): string {
+  const currentId = currentUserId?.trim() ?? '';
+  if (match.user_a_id && match.user_b_id) {
+    if (currentId && match.user_a_id === currentId) return match.user_b_id;
+    if (currentId && match.user_b_id === currentId) return match.user_a_id;
+    return match.user_id || match.user_b_id || match.user_a_id;
+  }
 
-  if (Platform.OS !== 'web') {
-    try {
-      const res = await fetch(`${AUTH_SERVICE_URL}/users/${encodeURIComponent(userId)}`, {
-        headers: bearer(token),
-      });
-      if (res.ok) authProfile = normalizeProfile(await res.json());
-    } catch {
-      authProfile = null;
+  return match.user_id;
+}
+
+function getMatchDisplayName(match: MatchResponse, userId?: string): string {
+  const cachedName = getUserDisplayName(userId);
+  if (chooseDisplayName(cachedName)) return cachedName;
+
+  if (userId) {
+    if (match.user_a_id === userId && chooseDisplayName(match.user_a_display_name)) {
+      return match.user_a_display_name as string;
+    }
+    if (match.user_b_id === userId && chooseDisplayName(match.user_b_display_name)) {
+      return match.user_b_display_name as string;
     }
   }
 
-  return mergeAgentProfile(authProfile, userId, agentResponse?.profile_memory ?? null);
+  return chooseDisplayName(
+    asString(match.user_a_display_name),
+    asString(match.user_b_display_name),
+    findDisplayName(match),
+    findDisplayName(match.metadata),
+  );
 }
 
-async function fetchUsers(token?: string | null): Promise<CandidateProfile[]> {
-  try {
-    const res = await fetch(`${AUTH_SERVICE_URL}/users`, {
-      headers: bearer(token),
-    });
-    if (!res.ok) return [];
-    return normalizeUsers(await res.json());
-  } catch {
-    return [];
+function getProfileDisplayName(profile: CandidateProfile | undefined, fallback?: string): string {
+  return chooseDisplayName(profile?.nombre, fallback);
+}
+
+async function fetchProfile(
+  userId: string,
+  token?: string | null,
+  fallbackDisplayName?: string | null,
+): Promise<CandidateProfile | null> {
+  const radarDisplayName = getUserDisplayName(userId);
+  const agentResponse = await getProfileMemory(userId, token).catch(() => null);
+  const rawDisplayName = findDisplayName(agentResponse?.raw);
+  const publicDisplayName = await fetchPublicUserDisplayName(userId, token);
+  let profile = mergeAgentProfile(
+    null,
+    userId,
+    agentResponse?.profile_memory ?? null,
+    chooseDisplayName(
+      radarDisplayName,
+      rawDisplayName,
+      fallbackDisplayName,
+      publicDisplayName,
+    ),
+  );
+  if (profile?.nombre && !isGenericDisplayName(profile.nombre)) {
+    setUserDisplayName(userId, profile.nombre);
+    return profile;
   }
-}
 
-function normalizeTerm(term: string): string {
-  return term
-    .trim()
-    .toLocaleLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
+  profile = mergeAgentProfile(
+    profile,
+    userId,
+    agentResponse?.profile_memory ?? null,
+    chooseDisplayName(
+      radarDisplayName,
+      fallbackDisplayName,
+      rawDisplayName,
+      publicDisplayName,
+    ),
+  );
+  setUserDisplayName(userId, profile?.nombre);
 
-async function fetchProfileSignals(userId: string, token: string): Promise<string[]> {
-  try {
-    const response = await getProfileMemory(userId, token);
-    const memory = response.profile_memory ?? {};
-    return [
-      ...asStringArray(memory.interests),
-      ...asStringArray(memory.hobbies),
-    ].map(normalizeTerm).filter(Boolean);
-  } catch {
-    return [];
-  }
+  return profile;
 }
 
 async function buildLocalMatches(
   userId: string,
   token: string,
+  excludedUserIds = new Set<string>(),
 ): Promise<EnrichedMatch[]> {
+  return [];
+  /*
   const [currentSignals, users] = await Promise.all([
     fetchProfileSignals(userId, token),
     fetchUsers(token),
@@ -234,7 +306,9 @@ async function buildLocalMatches(
   const currentSet = new Set(currentSignals);
   if (currentSet.size === 0 || users.length === 0) return [];
 
-  const candidates = users.filter((candidate) => candidate.id !== userId);
+  const candidates = users.filter(
+    (candidate) => candidate.id !== userId && !excludedUserIds.has(candidate.id),
+  );
   const maybeMatches = await Promise.all(
     candidates.map(async (candidate) => {
       const agentSignals = await fetchProfileSignals(candidate.id, token);
@@ -263,13 +337,16 @@ async function buildLocalMatches(
 
   return enriched
     .sort((a, b) => b.score - a.score);
+  */
 }
+
+void buildLocalMatches;
 
 async function syncCurrentUserMatchPayload(
   userId: string,
   token?: string | null,
 ): Promise<boolean> {
-  if (!token) return false;
+  if (!token || !MATCH_PAYLOAD_ENDPOINT_ENABLED) return false;
   try {
     const payload = await getMatchPayload(userId, token);
     await syncMatchPayload(payload, token);
@@ -277,6 +354,68 @@ async function syncCurrentUserMatchPayload(
   } catch {
     return false;
   }
+}
+
+function getOtherMatchUserId(match: MatchResponse, currentUserId: string): string {
+  return match.user_a_id === currentUserId ? match.user_b_id : match.user_a_id;
+}
+
+async function ensureConversationForAcceptedMatch(
+  currentUserId: string,
+  match: MatchResponse,
+  token?: string | null,
+): Promise<void> {
+  if (!token || match.status !== 'ACCEPTED') return;
+
+  const otherUserId = getOtherMatchUserId(match, currentUserId);
+  const conversations = await getConversations(token).catch(() => []);
+  const alreadyExists = conversations.some((conversation) => {
+    if (conversation.match_id && conversation.match_id === match.id) return true;
+    return (
+      conversation.conversation_type !== 'GROUP' &&
+      conversation.participant_ids.includes(otherUserId)
+    );
+  });
+
+  if (alreadyExists) return;
+
+  try {
+    await createConversation(otherUserId, match.id, token);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) return;
+    throw error;
+  }
+}
+
+async function ensurePendingMatchesForCandidates(
+  currentUserId: string,
+  candidates: PotentialMatch[],
+  existingOtherUserIds: Set<string>,
+  token?: string | null,
+): Promise<void> {
+  if (!token || !AUTO_SHARE_POTENTIAL_MATCHES || candidates.length === 0) return;
+
+  await Promise.all(
+    candidates.map(async (candidate) => {
+      if (existingOtherUserIds.has(candidate.user_id)) return;
+
+      try {
+        await createMatch(currentUserId, candidate.user_id, token);
+      } catch (error) {
+        if (error instanceof MatchServiceError && error.status === 409) return;
+        throw error;
+      }
+    }),
+  );
+}
+
+function isActiveMatch(match: MatchResponse): boolean {
+  return match.status === 'PENDING' || match.status === 'ACCEPTED';
+}
+
+function isVisibleRequest(match: MatchResponse, currentUserId: string): boolean {
+  if (match.status === 'ACCEPTED') return true;
+  return match.status === 'PENDING' && match.user_b_id === currentUserId;
 }
 
 function scoreColor(score: number): string {
@@ -302,6 +441,7 @@ function MatchCard({
 }) {
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const { profile, score, reasons, liked } = item;
+  const displayName = getProfileDisplayName(profile, getPotentialMatchDisplayName(item));
 
   const handleLike = () => {
     Animated.sequence([
@@ -334,7 +474,7 @@ function MatchCard({
 
         <View style={styles.cardInfo}>
           <Text style={styles.nameText}>
-            {profile?.nombre ?? 'Usuario'}{' '}
+            {displayName}{' '}
             {profile?.edad ? (
               <Text style={styles.ageText}>{profile.edad}</Text>
             ) : null}
@@ -438,9 +578,11 @@ function RequestCard({
   onAccept: (matchId: string) => void;
   onReject: (matchId: string) => void;
 }) {
-  const { profile, compatibility_score, reasons, direction } = item;
+  const { profile, compatibility_score, reasons, direction, status } = item;
   const incoming = direction === 'incoming';
+  const pending = status === 'PENDING';
   const score = Math.round(compatibility_score ?? 0);
+  const displayName = getProfileDisplayName(profile, getMatchDisplayName(item, item.other_user_id));
 
   return (
     <View style={[styles.card, styles.requestCard]}>
@@ -460,11 +602,15 @@ function RequestCard({
 
         <View style={styles.cardInfo}>
           <Text style={styles.nameText}>
-            {profile?.nombre ?? 'Usuario'}{' '}
+            {displayName}{' '}
             {profile?.edad ? <Text style={styles.ageText}>{profile.edad}</Text> : null}
           </Text>
           <Text style={styles.requestMeta}>
-            {incoming ? 'Quiere hacer match contigo' : 'Solicitud enviada'}
+            {status === 'ACCEPTED'
+              ? 'Match aceptado'
+              : incoming
+                ? 'Quiere hacer match contigo'
+                : 'Solicitud enviada'}
           </Text>
           {profile?.bio ? (
             <Text style={styles.requestReason} numberOfLines={2}>
@@ -479,7 +625,7 @@ function RequestCard({
         </View>
       </View>
 
-      {incoming ? (
+      {incoming && pending ? (
         <View style={styles.requestActions}>
           <Pressable style={[styles.requestButton, styles.rejectButton]} onPress={() => onReject(item.id)}>
             <MaterialCommunityIcons name="close" size={18} color="#6b7280" />
@@ -504,15 +650,32 @@ export default function ExploreScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
-  const loadRequests = useCallback(async () => {
-    if (!user?.id) return;
+  const loadExistingMatches = useCallback(async (): Promise<MatchResponse[]> => {
+    if (!user?.id) return [];
     try {
-      const response = await getUserMatches(user.id, 'PENDING', 30, 0, accessToken);
+      const response = await getUserMatches(user.id, undefined, 50, 0, accessToken);
+      return response.matches.filter(isActiveMatch);
+    } catch {
+      return [];
+    }
+  }, [accessToken, user?.id]);
+
+  const loadRequests = useCallback(async (): Promise<EnrichedRequest[]> => {
+    if (!user?.id) return [];
+    try {
+      const visibleMatches = (await loadExistingMatches()).filter((match) =>
+        isVisibleRequest(match, user.id),
+      );
       const enriched = await Promise.all(
-        response.matches.map(async (match) => {
+        visibleMatches.map(async (match) => {
           const otherUserId = match.user_a_id === user.id ? match.user_b_id : match.user_a_id;
-          const profile = await fetchProfile(otherUserId, accessToken);
+          const profile = await fetchProfile(
+            otherUserId,
+            accessToken,
+            getMatchDisplayName(match, otherUserId),
+          );
           return {
             ...match,
             other_user_id: otherUserId,
@@ -522,35 +685,53 @@ export default function ExploreScreen() {
         }),
       );
       setRequests(enriched);
+      return enriched;
     } catch {
       setRequests([]);
+      return [];
     }
-  }, [accessToken, user?.id]);
+  }, [accessToken, loadExistingMatches, user?.id]);
 
   const loadCandidates = useCallback(
     async (silent = false) => {
       if (!user?.id) return;
       if (!silent) setLoading(true);
       setError(null);
+      setActionMessage(null);
 
       try {
         if (accessToken) {
           await syncCurrentUserMatchPayload(user.id, accessToken);
         }
+        const existingMatches = await loadExistingMatches();
+        const requestedUserIds = new Set(
+          existingMatches.map((match) => getOtherMatchUserId(match, user.id)),
+        );
         await loadRequests();
 
         let matches: PotentialMatch[] = [];
         try {
           const response = await getPotentialMatches(user.id, 20, 0, accessToken);
-          matches = response.matches;
+          matches = response.matches
+            .map((match) => ({ ...match, user_id: getPotentialMatchUserId(match, user.id) }))
+            .filter((match) => match.user_id !== user.id)
+            .filter((match) => !requestedUserIds.has(match.user_id));
+          await ensurePendingMatchesForCandidates(
+            user.id,
+            matches,
+            requestedUserIds,
+            accessToken,
+          );
         } catch (matchError) {
           if (!accessToken) throw matchError;
         }
-
-        // Enrich with profiles in parallel
         const enriched: EnrichedMatch[] = await Promise.all(
           matches.map(async (m) => {
-            const profile = await fetchProfile(m.user_id, accessToken);
+            const profile = await fetchProfile(
+              m.user_id,
+              accessToken,
+              getPotentialMatchDisplayName(m),
+            );
             return { ...m, profile: profile ?? undefined };
           }),
         );
@@ -560,10 +741,7 @@ export default function ExploreScreen() {
           return;
         }
 
-        const localMatches = accessToken && Platform.OS !== 'web'
-          ? await buildLocalMatches(user.id, accessToken)
-          : [];
-        setCandidates(localMatches);
+        setCandidates([]);
       } catch (e: any) {
         setError(e.message ?? 'Error al cargar candidatos');
       } finally {
@@ -571,7 +749,7 @@ export default function ExploreScreen() {
         setRefreshing(false);
       }
     },
-    [accessToken, loadRequests, user?.id],
+    [accessToken, loadExistingMatches, loadRequests, user?.id],
   );
 
   useEffect(() => {
@@ -581,6 +759,8 @@ export default function ExploreScreen() {
   const handleLike = useCallback(
     async (candidateId: string) => {
       if (!user?.id) return;
+      setActionMessage(null);
+      const selectedCandidate = candidates.find((candidate) => candidate.user_id === candidateId);
 
       // Optimistic update
       setCandidates((prev) =>
@@ -591,15 +771,97 @@ export default function ExploreScreen() {
         if (accessToken) {
           await syncCurrentUserMatchPayload(user.id, accessToken);
         }
-        await createMatch(user.id, candidateId, accessToken);
-      } catch {
+        let createdMatch: MatchResponse | null = null;
+        const findExistingMatch = async () => {
+          const currentMatches = await getUserMatches(user.id, undefined, 50, 0, accessToken)
+            .catch(() => ({ matches: [] }));
+          return currentMatches.matches.find(
+            (match) =>
+              (match.user_a_id === user.id && match.user_b_id === candidateId) ||
+              (match.user_a_id === candidateId && match.user_b_id === user.id),
+          );
+        };
+
+        const existingBeforeCreate = await findExistingMatch();
+        if (existingBeforeCreate) {
+          if (existingBeforeCreate.status === 'PENDING' && existingBeforeCreate.user_b_id === user.id) {
+            createdMatch = await updateMatchStatus(existingBeforeCreate.id, 'ACCEPTED', accessToken);
+          } else if (existingBeforeCreate.status === 'ACCEPTED') {
+            createdMatch = existingBeforeCreate;
+          } else {
+            setCandidates((prev) => prev.filter((candidate) => candidate.user_id !== candidateId));
+            setActionMessage('Ya habias enviado esta solicitud. Esperando respuesta.');
+            return;
+          }
+        }
+
+        try {
+          if (!createdMatch) {
+            createdMatch = await createMatch(user.id, candidateId, accessToken);
+          }
+        } catch (createError) {
+          if (!(createError instanceof MatchServiceError) || createError.status !== 409) {
+            throw createError;
+          }
+
+          const existingMatch = await findExistingMatch();
+
+          if (existingMatch) {
+            if (existingMatch.status === 'PENDING' && existingMatch.user_b_id === user.id) {
+              createdMatch = await updateMatchStatus(existingMatch.id, 'ACCEPTED', accessToken);
+            } else if (existingMatch.status === 'ACCEPTED') {
+              createdMatch = existingMatch;
+            } else {
+              setCandidates((prev) => prev.filter((candidate) => candidate.user_id !== candidateId));
+              setActionMessage('Ya habias enviado esta solicitud. Esperando respuesta.');
+              return;
+            }
+          } else {
+            setCandidates((prev) => prev.filter((candidate) => candidate.user_id !== candidateId));
+            setActionMessage('La solicitud ya existia en el match-service.');
+            return;
+          }
+        }
+        await ensureConversationForAcceptedMatch(user.id, createdMatch, accessToken);
+        const profile =
+          selectedCandidate?.profile ??
+          await fetchProfile(
+            candidateId,
+            accessToken,
+            selectedCandidate ? getPotentialMatchDisplayName(selectedCandidate) : undefined,
+          );
+        setCandidates((prev) => prev.filter((candidate) => candidate.user_id !== candidateId));
+        if (createdMatch.status === 'ACCEPTED') {
+          setRequests((prev) => {
+            const otherUserId =
+              getOtherMatchUserId(createdMatch, user.id);
+            const withoutDuplicate = prev.filter((request) => request.id !== createdMatch.id);
+            return [
+              {
+                ...createdMatch,
+                other_user_id: otherUserId,
+                direction: createdMatch.user_b_id === user.id ? 'incoming' : 'outgoing',
+                profile: profile ?? undefined,
+              },
+              ...withoutDuplicate,
+            ];
+          });
+        } else {
+          setActionMessage('Solicitud enviada. Aparecera como match cuando la otra persona acepte.');
+        }
+      } catch (likeError) {
         // Revert on error
         setCandidates((prev) =>
           prev.map((c) => (c.user_id === candidateId ? { ...c, liked: false } : c)),
         );
+        setActionMessage(
+          likeError instanceof Error
+            ? likeError.message
+            : 'No se pudo enviar la solicitud de match.',
+        );
       }
     },
-    [accessToken, user?.id],
+    [accessToken, candidates, user?.id],
   );
 
   const onRefresh = useCallback(() => {
@@ -609,14 +871,28 @@ export default function ExploreScreen() {
 
   const handleRequestStatus = useCallback(
     async (matchId: string, status: 'ACCEPTED' | 'REJECTED') => {
+      const request = requests.find((item) => item.id === matchId);
       setRequests((prev) => prev.filter((request) => request.id !== matchId));
       try {
-        await updateMatchStatus(matchId, status, accessToken);
-      } catch {
+        const updatedMatch = await updateMatchStatus(matchId, status, accessToken);
+        if (status === 'ACCEPTED') {
+          await ensureConversationForAcceptedMatch(user?.id ?? '', updatedMatch, accessToken);
+        }
+        await loadCandidates(true);
+      } catch (error) {
+        if (status === 'ACCEPTED' && request) {
+          setRequests((prev) => [request, ...prev]);
+          setActionMessage(
+            error instanceof Error
+              ? error.message
+              : 'El match se acepto, pero no se pudo crear el chat.',
+          );
+          return;
+        }
         await loadRequests();
       }
     },
-    [accessToken, loadRequests],
+    [accessToken, loadCandidates, loadRequests, requests, user?.id],
   );
 
   // ── States ──
@@ -672,6 +948,11 @@ export default function ExploreScreen() {
           <MaterialCommunityIcons name="refresh" size={22} color="#ff2d78" />
         </Pressable>
       </View>
+      {actionMessage ? (
+        <View style={styles.actionBanner}>
+          <Text style={styles.actionBannerText}>{actionMessage}</Text>
+        </View>
+      ) : null}
 
       <FlatList
         data={candidates}
@@ -747,6 +1028,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff0f5',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  actionBanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: '#fff0f5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffe0ea',
+  },
+  actionBannerText: {
+    color: '#b42355',
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   listContent: {
     padding: 16,
