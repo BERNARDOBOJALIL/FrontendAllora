@@ -1,13 +1,15 @@
 // services/match-service.ts
 // Cliente HTTP para el match-service backend
 
-import { Platform } from 'react-native';
+import { Platform } from "react-native";
 
-const MATCH_SERVICE_URL = process.env.EXPO_PUBLIC_MATCH_SERVICE_URL ?? 'http://192.168.0.253:8002';
+const MATCH_SERVICE_URL =
+  process.env.EXPO_PUBLIC_MATCH_SERVICE_URL ?? "http://192.168.0.253:8002";
 const MATCH_GATEWAY_URL = process.env.EXPO_PUBLIC_MATCH_GATEWAY_URL?.trim();
-const MATCH_PAYLOAD_ENDPOINT = process.env.EXPO_PUBLIC_MATCH_PAYLOAD_ENDPOINT ?? '/match';
+const MATCH_PAYLOAD_ENDPOINT =
+  process.env.EXPO_PUBLIC_MATCH_PAYLOAD_ENDPOINT ?? "/match";
 
-export type MatchStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
+export type MatchStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "EXPIRED";
 
 export interface PotentialMatch {
   user_id: string;
@@ -62,7 +64,7 @@ export class MatchServiceError extends Error {
 
   constructor(status: number, body: string) {
     super(`match-service ${status}: ${body}`);
-    this.name = 'MatchServiceError';
+    this.name = "MatchServiceError";
     this.status = status;
     this.body = body;
   }
@@ -70,43 +72,43 @@ export class MatchServiceError extends Error {
 
 function authHeaders(token?: string | null): Record<string, string> {
   if (!token) return {};
-  return { Authorization: `Bearer ${token.trim().replace(/^Bearer\s+/i, '')}` };
+  return { Authorization: `Bearer ${token.trim().replace(/^Bearer\s+/i, "")}` };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
+  return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
 function asString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
 }
 
 function pickDisplayName(value: unknown, depth = 0): string {
   const record = asRecord(value);
-  if (!record || depth > 3) return '';
+  if (!record || depth > 3) return "";
 
   const keys = [
-    'name',
-    'user_name',
-    'userName',
-    'nombre',
-    'display_name',
-    'displayName',
-    'full_name',
-    'fullName',
-    'real_name',
-    'realName',
-    'username',
-    'nickname',
+    "name",
+    "user_name",
+    "userName",
+    "nombre",
+    "display_name",
+    "displayName",
+    "full_name",
+    "fullName",
+    "real_name",
+    "realName",
+    "username",
+    "nickname",
   ];
 
   for (const key of keys) {
@@ -119,7 +121,16 @@ function pickDisplayName(value: unknown, depth = 0): string {
   const fullName = `${firstName} ${lastName}`.trim();
   if (fullName) return fullName;
 
-  for (const key of ['user', 'candidate', 'profile', 'person', 'account', 'data', 'payload', 'result']) {
+  for (const key of [
+    "user",
+    "candidate",
+    "profile",
+    "person",
+    "account",
+    "data",
+    "payload",
+    "result",
+  ]) {
     const nested = pickDisplayName(record[key], depth + 1);
     if (nested) return nested;
   }
@@ -129,7 +140,7 @@ function pickDisplayName(value: unknown, depth = 0): string {
     if (nested) return nested;
   }
 
-  return '';
+  return "";
 }
 
 function pickList(payload: unknown): unknown[] {
@@ -171,8 +182,10 @@ function normalizePotentialMatch(payload: unknown): PotentialMatch | null {
   if (!userId || !Number.isFinite(score)) return null;
   return {
     user_id: userId,
-    user_a_id: asString(record.user_a_id) || asString(record.userAId) || undefined,
-    user_b_id: asString(record.user_b_id) || asString(record.userBId) || undefined,
+    user_a_id:
+      asString(record.user_a_id) || asString(record.userAId) || undefined,
+    user_b_id:
+      asString(record.user_b_id) || asString(record.userBId) || undefined,
     score: Math.max(0, Math.min(100, score)),
     reasons: asStringArray(record.reasons),
     display_name: pickDisplayName(record) || undefined,
@@ -209,22 +222,28 @@ function normalizeMatch(payload: unknown): MatchResponse | null {
       asString(record.user_b_display_name) ||
       asString(record.userBDisplayName) ||
       undefined,
-    status: (asString(record.status) || 'PENDING') as MatchStatus,
+    status: (asString(record.status) || "PENDING") as MatchStatus,
     compatibility_score:
-      Number(record.compatibility_score ?? record.compatibilityScore ?? record.score) || 0,
+      Number(
+        record.compatibility_score ?? record.compatibilityScore ?? record.score,
+      ) || 0,
     reasons: asStringArray(record.reasons),
     created_at: asString(record.created_at) || asString(record.createdAt),
     updated_at: asString(record.updated_at) || asString(record.updatedAt),
-    expires_at: asString(record.expires_at) || asString(record.expiresAt) || null,
+    expires_at:
+      asString(record.expires_at) || asString(record.expiresAt) || null,
     metadata: asRecord(record.metadata) ?? {},
   };
 }
 
-function normalizePotentialMatchList(payload: unknown): PotentialMatchListResponse {
+function normalizePotentialMatchList(
+  payload: unknown,
+): PotentialMatchListResponse {
   const matches = pickList(payload)
     .map(normalizePotentialMatch)
     .filter((match): match is PotentialMatch => Boolean(match));
-  const total = Number(asRecord(payload)?.total ?? matches.length) || matches.length;
+  const total =
+    Number(asRecord(payload)?.total ?? matches.length) || matches.length;
   return { total, matches };
 }
 
@@ -232,7 +251,8 @@ function normalizeMatchList(payload: unknown): MatchListResponse {
   const matches = pickList(payload)
     .map(normalizeMatch)
     .filter((match): match is MatchResponse => Boolean(match));
-  const total = Number(asRecord(payload)?.total ?? matches.length) || matches.length;
+  const total =
+    Number(asRecord(payload)?.total ?? matches.length) || matches.length;
   return { total, matches };
 }
 
@@ -241,22 +261,23 @@ async function request<T>(
   options: MatchRequestOptions = {},
 ): Promise<T> {
   const { token, ...requestOptions } = options;
-  const baseUrl = Platform.OS === 'web' && MATCH_GATEWAY_URL
-    ? MATCH_GATEWAY_URL
-    : MATCH_SERVICE_URL;
-  const fullUrl = `${baseUrl.replace(/\/$/, '')}${path}`;
+  const baseUrl =
+    Platform.OS === "web" && MATCH_GATEWAY_URL
+      ? MATCH_GATEWAY_URL
+      : MATCH_SERVICE_URL;
+  const fullUrl = `${baseUrl.replace(/\/$/, "")}${path}`;
   // Dev log: show request target and whether a token is included (do not print token raw)
-  if (process.env.NODE_ENV !== 'production') {
-    console.debug('[match-service] request', {
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("[match-service] request", {
       url: fullUrl,
-      method: requestOptions.method ?? 'GET',
+      method: requestOptions.method ?? "GET",
       hasToken: Boolean(options.token),
     });
   }
 
   const res = await fetch(fullUrl, {
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...authHeaders(token),
       ...requestOptions.headers,
     },
@@ -304,8 +325,11 @@ export async function getUserMatches(
   skip = 0,
   token?: string | null,
 ): Promise<MatchListResponse> {
-  const params = new URLSearchParams({ limit: String(limit), skip: String(skip) });
-  if (status) params.append('status', status);
+  const params = new URLSearchParams({
+    limit: String(limit),
+    skip: String(skip),
+  });
+  if (status) params.append("status", status);
   const payload = await request<unknown>(
     `/users/${encodeURIComponent(userId)}/all-matches?${params.toString()}`,
     { token },
@@ -322,8 +346,8 @@ export async function createMatch(
   userBId: string,
   token?: string | null,
 ): Promise<MatchResponse> {
-  const payload = await request<unknown>('/matches', {
-    method: 'POST',
+  const payload = await request<unknown>("/matches", {
+    method: "POST",
     token,
     body: JSON.stringify({ user_a_id: userAId, user_b_id: userBId }),
   });
@@ -333,7 +357,7 @@ export async function createMatch(
       id: `${userAId}:${userBId}:${Date.now()}`,
       user_a_id: userAId,
       user_b_id: userBId,
-      status: 'PENDING',
+      status: "PENDING",
       compatibility_score: 0,
       reasons: [],
       created_at: new Date().toISOString(),
@@ -353,7 +377,7 @@ export async function syncMatchPayload(
   token?: string | null,
 ): Promise<unknown> {
   return request(MATCH_PAYLOAD_ENDPOINT, {
-    method: 'POST',
+    method: "POST",
     token,
     body: JSON.stringify(payload),
   });
@@ -369,7 +393,7 @@ export async function updateMatchStatus(
   token?: string | null,
 ): Promise<MatchResponse> {
   return request(`/matches/${matchId}`, {
-    method: 'PUT',
+    method: "PUT",
     token,
     body: JSON.stringify({ status }),
   });
@@ -388,7 +412,7 @@ export async function getMatch(matchId: string): Promise<MatchResponse> {
  * Endpoint: DELETE /matches/{match_id}
  */
 export async function deleteMatch(matchId: string): Promise<void> {
-  return request(`/matches/${matchId}`, { method: 'DELETE' });
+  return request(`/matches/${matchId}`, { method: "DELETE" });
 }
 
 /**
@@ -399,9 +423,14 @@ export async function calculateCompatibility(
   userAId: string,
   userBId: string,
   token?: string | null,
-): Promise<{ user_a_id: string; user_b_id: string; score: number; reasons: string[] }> {
-  return request('/compatibility', {
-    method: 'POST',
+): Promise<{
+  user_a_id: string;
+  user_b_id: string;
+  score: number;
+  reasons: string[];
+}> {
+  return request("/compatibility", {
+    method: "POST",
     token,
     body: JSON.stringify({ user_a_id: userAId, user_b_id: userBId }),
   });

@@ -1,32 +1,32 @@
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    Text,
-    TextInput,
-    View,
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 
 import { styles } from "@/app/(tabs)/chat.styles";
 import { useAuth } from "@/providers/auth-context";
 import {
-    Conversation,
-    getConversations,
-    getGroupConversations,
-    getGroupMessages,
-    getMessages,
-    getPresence,
-    markConversationAsRead,
-    markOffline,
-    markOnline,
-    Message,
-    sendGroupMessage,
-    sendMessage,
+  Conversation,
+  getConversations,
+  getGroupConversations,
+  getGroupMessages,
+  getMessages,
+  getPresence,
+  markConversationAsRead,
+  markOffline,
+  markOnline,
+  Message,
+  sendGroupMessage,
+  sendMessage,
 } from "@/services/chat";
 import { getProfileMemory } from "@/services/profile";
 import {
