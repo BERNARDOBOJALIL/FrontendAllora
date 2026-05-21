@@ -23,6 +23,7 @@ import {
     leaveSpace,
     type Space,
 } from "@/services/groups";
+import { ApiError } from '@/services/api';
 import {
     LocationWebSocketService,
     SocketStatus,
@@ -572,8 +573,10 @@ function normalizePlaces(input: unknown): NearbyPlace[] {
     if (!item || typeof item !== "object") return;
     const r = item as Record<string, unknown>;
     const name =
-      String(r.name ?? r.title ?? r.label ?? "").trim() || `Place ${i + 1}`;
-    const id = String(r.id ?? r.place_id ?? name);
+      String(
+        r.name ?? r.title ?? r.label ?? r.place_name ?? r.space_name ?? "",
+      ).trim() || `Lugar ${i + 1}`;
+    const id = String(r.id ?? r.place_id ?? r.space_id ?? name);
     result.push({
       id,
       name,
@@ -1308,11 +1311,20 @@ export default function LocationScreen() {
         const result = await getNearbySpaces(
           coords.lat,
           coords.lng,
-          5,
+          20,
           accessToken ?? undefined,
           user?.id,
         );
-        setNearbySpaces(result.spaces || []);
+        const spaces = result.spaces || [];
+        setNearbySpaces(spaces);
+        if (user?.id) {
+          setUserSpaces(
+            spaces
+              .filter((space) => space.members?.includes(user.id))
+              .map((space) => space.space_id),
+          );
+        }
+        setErrorMessage(null);
       } catch (err) {
         console.warn("Error fetching nearby spaces:", err);
       } finally {
@@ -1321,6 +1333,47 @@ export default function LocationScreen() {
     },
     [accessToken, user?.id],
   );
+
+    // Enriquecer nombres genéricos o faltantes de espacios consultando el servicio
+    useEffect(() => {
+      let mounted = true;
+      const genericNamePattern = /^(place|lugar)\s*\d+$/i;
+      const candidates = nearbySpaces.filter(
+        (s) => !s.name || genericNamePattern.test(String(s.name)),
+      );
+      if (candidates.length === 0) return;
+
+      (async () => {
+        try {
+          const { getSpace } = await import('@/services/groups');
+          await Promise.all(
+            candidates.map(async (space) => {
+              try {
+                const fresh = await getSpace(
+                  space.space_id,
+                  accessToken ?? undefined,
+                  user?.id,
+                );
+                if (!mounted) return;
+                if (fresh && fresh.name && fresh.name.trim()) {
+                  setNearbySpaces((prev) =>
+                    prev.map((s) => (s.space_id === space.space_id ? fresh : s)),
+                  );
+                }
+              } catch {
+                // ignore per-space failures
+              }
+            }),
+          );
+        } catch {
+          // ignore
+        }
+      })();
+
+      return () => {
+        mounted = false;
+      };
+    }, [nearbySpaces, accessToken, user?.id]);
 
   const handleCreateSpace = useCallback(
     async (
@@ -1331,31 +1384,55 @@ export default function LocationScreen() {
     ) => {
       const coords = coordsRef.current;
       if (!coords || !user?.id || !accessToken) return;
+      // Client-side validation
+      if (!name || !name.trim()) {
+        setErrorMessage('El nombre del grupo es requerido.');
+        return;
+      }
+      if (typeof radiusKm !== 'number' || !isFinite(radiusKm) || radiusKm <= 0) {
+        setErrorMessage('Radio inválido para el grupo.');
+        return;
+      }
+
+      const payload = {
+        user_id: user.id,
+        name: name.trim(),
+        description: description ?? '',
+        photo_base64: photoBase64 ?? '',
+        lat: coords.lat,
+        lng: coords.lng,
+        radius_km: radiusKm,
+      };
+
       try {
-        const newSpace = await createSpace(
-          {
-            user_id: user.id,
-            name,
-            description,
-            photo_base64: photoBase64,
-            lat: coords.lat,
-            lng: coords.lng,
-            radius_km: radiusKm,
-          },
-          accessToken,
-          user.id,
-        );
+        console.debug('Creating space with payload:', payload);
+        const newSpace = await createSpace(payload, accessToken, user.id);
         setNearbySpaces((prev) => [...prev, newSpace]);
         setUserSpaces((prev) => [...prev, newSpace.space_id]);
         setShowCreateGroupModal(false);
+        await fetchNearbySpaces({ force: true });
       } catch (err) {
-        console.error("Error creating space:", err);
-        setErrorMessage(
-          err instanceof Error ? err.message : "Error creando grupo",
-        );
+        // Log and show detailed errors when possible
+        console.error('Error creating space:', err);
+        try {
+          if (err instanceof ApiError) {
+            console.error('ApiError details:', err.details);
+            const details = err.details;
+            if (details && typeof details === 'object') {
+              setErrorMessage(
+                String((details as any).detail ?? JSON.stringify(details)),
+              );
+              return;
+            }
+          }
+        } catch {
+          // ignore
+        }
+
+        setErrorMessage(err instanceof Error ? err.message : 'Error creando grupo');
       }
     },
-    [accessToken, user?.id],
+    [accessToken, fetchNearbySpaces, user?.id],
   );
 
   const handleJoinSpace = useCallback(
@@ -1363,32 +1440,44 @@ export default function LocationScreen() {
       const coords = coordsRef.current;
       if (!coords || !user?.id || !accessToken) return;
       try {
+        // Si el espacio no está en la lista local, forzar una actualización
+        const existsLocally = nearbySpaces.some((s) => s.space_id === spaceId);
+        if (!existsLocally) {
+          await fetchNearbySpaces({ force: true });
+          const refreshed = nearbySpaces.find((s) => s.space_id === spaceId);
+          if (!refreshed) {
+            setErrorMessage('No se encontró el grupo en el servidor (posible caducidad).');
+            return;
+          }
+        }
+
         const updatedSpace = await joinSpace(
           spaceId,
           { user_id: user.id, lat: coords.lat, lng: coords.lng },
           accessToken,
           user.id,
         );
-        setUserSpaces((prev) =>
-          prev.includes(spaceId) ? prev : [...prev, spaceId],
-        );
-        setNearbySpaces((prev) =>
-          prev.map((space) =>
-            space.space_id === spaceId ? updatedSpace : space,
-          ),
-        );
-        setSelectedSpace((current) =>
-          current?.space_id === spaceId ? updatedSpace : current,
-        );
+
+        setUserSpaces((prev) => (prev.includes(spaceId) ? prev : [...prev, spaceId]));
+        setNearbySpaces((prev) => prev.map((space) => (space.space_id === spaceId ? updatedSpace : space)));
+        setSelectedSpace((current) => (current?.space_id === spaceId ? updatedSpace : current));
         await fetchNearbySpaces({ force: true });
       } catch (err) {
-        console.error("Error joining space:", err);
-        setErrorMessage(
-          err instanceof Error ? err.message : "Error uniéndose al grupo",
-        );
+        console.error('Error joining space:', err);
+        if (err instanceof ApiError && err.status === 404) {
+          try {
+            await fetchNearbySpaces({ force: true });
+          } catch {
+            // ignore
+          }
+          setErrorMessage('El grupo ya no existe o caducó. Lista actualizada.');
+          return;
+        }
+
+        setErrorMessage(err instanceof Error ? err.message : 'Error uniéndose al grupo');
       }
     },
-    [accessToken, fetchNearbySpaces, user?.id],
+    [accessToken, fetchNearbySpaces, user?.id, nearbySpaces],
   );
 
   const handleLeaveSpace = useCallback(
@@ -1589,9 +1678,25 @@ export default function LocationScreen() {
         });
 
         setNearbyUsers(freshUsers);
+        // También procesar lugares/grupos enviados por el WebSocket
+        try {
+          const places = normalizePlacesFromPayload(r);
+          if (places && places.length > 0) {
+            // Evitar crear 'lugares' fantasmas a partir de payloads incompletos del WS.
+            // En su lugar, forzamos una actualización desde el endpoint REST para obtener
+            // los espacios canónicos y evitar nombres genéricos como "Lugar 1".
+            try {
+              fetchNearbySpaces({ force: true }).catch(() => undefined);
+            } catch {
+              // ignore
+            }
+          }
+        } catch {
+          // No bloquear si el payload de lugares no es procesable
+        }
       }
     },
-    [user?.email, user?.id, user?.nombre],
+    [fetchNearbySpaces, user?.email, user?.id, user?.nombre],
   );
 
   const ensureSocketService = useCallback(() => {
@@ -1625,12 +1730,12 @@ export default function LocationScreen() {
       lng: coords.lng,
       timestamp: new Date().toISOString(),
       clientId: clientIdRef.current,
-      user_id: clientIdRef.current,
-      userId: clientIdRef.current,
+      user_id: user?.id ?? clientIdRef.current,
+      userId: user?.id ?? clientIdRef.current,
       user_name: currentUserName || undefined,
       userName: currentUserName || undefined,
     });
-  }, []);
+  }, [user?.id]);
 
   const requestPermissionAndTrack = useCallback(async () => {
     setIsRequestingPermission(true);
@@ -1690,6 +1795,19 @@ export default function LocationScreen() {
       fetchNearbySpaces();
     }
   }, [currentCoords, user?.id, fetchNearbySpaces]);
+
+  useEffect(() => {
+    if (!currentCoords || !user?.id || permissionState !== "granted") return;
+
+    fetchNearbySpaces({ force: true });
+    const intervalId = setInterval(() => {
+      fetchNearbySpaces({ force: true });
+    }, 15000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [currentCoords, fetchNearbySpaces, permissionState, user?.id]);
 
   useEffect(() => {
     if (permissionState !== "granted") {

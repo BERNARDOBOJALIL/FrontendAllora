@@ -281,10 +281,12 @@ export const styles = StyleSheet.create({
   messageRowSent: {
     alignSelf: 'flex-end',
     alignItems: 'flex-end',
+    marginLeft: 48,
   },
   messageRowReceived: {
     alignSelf: 'flex-start',
     alignItems: 'flex-start',
+    marginRight: 48,
   },
   messageSender: {
     marginBottom: 4,
@@ -301,11 +303,20 @@ export const styles = StyleSheet.create({
   messageContainerSent: {
     backgroundColor: C.rose,
     borderBottomRightRadius: 6,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    // subtle shadow to lift sent bubbles
+    shadowColor: C.roseDeep,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 2,
   },
   messageContainerReceived: {
-    backgroundColor: C.white,
-    borderWidth: 1,
-    borderColor: C.inkFaint,
+    backgroundColor: C.lavTint,
+    borderWidth: 0,
+    borderRadius: 18,
     borderBottomLeftRadius: 6,
   },
   messageText: {
@@ -315,6 +326,7 @@ export const styles = StyleSheet.create({
   },
   messageTextSent: {
     color: C.white,
+    textAlign: 'right',
   },
   messageMeta: {
     marginTop: 5,
@@ -323,7 +335,7 @@ export const styles = StyleSheet.create({
     textAlign: 'right',
   },
   messageMetaSent: {
-    color: 'rgba(255,255,255,0.68)',
+    color: 'rgba(255,255,255,0.88)',
   },
   composer: {
     padding: 12,

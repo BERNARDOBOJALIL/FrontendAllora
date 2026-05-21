@@ -237,20 +237,6 @@ function getPotentialMatchDisplayName(match: PotentialMatch): string {
   );
 }
 
-function getPotentialMatchUserId(
-  match: PotentialMatch,
-  currentUserId?: string,
-): string {
-  const currentId = currentUserId?.trim() ?? "";
-  if (match.user_a_id && match.user_b_id) {
-    if (currentId && match.user_a_id === currentId) return match.user_b_id;
-    if (currentId && match.user_b_id === currentId) return match.user_a_id;
-    return match.user_id || match.user_b_id || match.user_a_id;
-  }
-
-  return match.user_id;
-}
-
 function getMatchDisplayName(match: MatchResponse, userId?: string): string {
   const cachedName = getUserDisplayName(userId);
   if (chooseDisplayName(cachedName)) return cachedName;
@@ -808,17 +794,8 @@ export default function ExploreScreen() {
 
         let matches: PotentialMatch[] = [];
         try {
-          const response = await getPotentialMatches(
-            user.id,
-            20,
-            0,
-            accessToken,
-          );
+          const response = await getPotentialMatches(user.id, 10, 0, accessToken);
           matches = response.matches
-            .map((match) => ({
-              ...match,
-              user_id: getPotentialMatchUserId(match, user.id),
-            }))
             .filter((match) => match.user_id !== user.id)
             .filter((match) => !requestedUserIds.has(match.user_id));
           await ensurePendingMatchesForCandidates(

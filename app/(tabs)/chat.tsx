@@ -409,6 +409,26 @@ export default function ChatScreen() {
           unread_count: conversation.unread_count ?? 0,
         }),
       );
+      // Rellenar nombres faltantes de conversaciones de grupo a partir del servicio de espacios
+      try {
+        const toFill = groupConversations.filter(
+          (c) => c.conversation_type === 'GROUP' && !c.name && c.space_id,
+        );
+        await Promise.all(
+          toFill.map(async (c) => {
+            try {
+              // Import lazy to avoid circular deps at top-level if any
+              const { getSpace } = await import('@/services/groups');
+              const space = await getSpace(c.space_id as string, token);
+              if (space && space.name) c.name = space.name;
+            } catch {
+              // ignore individual failures
+            }
+          }),
+        );
+      } catch {
+        // ignore
+      }
     } catch {
       groupConversations = [];
     }

@@ -3,3 +3,39 @@ The following packages should be updated for best compatibility with the install
   expo-location@55.1.9 - expected version: ~19.0.8
   react-native-svg@15.2.0 - expected version: 15.12.1
 Your project may not work correctly until you install the expected versions of the packages.
+"shadow*" style props are deprecated. Use "boxShadow".
+λ  WARN  Route "./(tabs)/chat.styles.ts" is missing the required default export. Ensure a React component is exported as default. 
+  console.warn (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo\node_modules\@expo\cli\src\start\server\serverLogLikeMetro.ts:161:21)
+  getDirectoryTree (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutesCore.js:311:29)
+  getRoutes (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutesCore.js:23:27)
+  getRoutes (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutes.js:20:41)
+  useStore (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\global-state\router-store.js:141:48)
+  Component (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\ExpoRoot.js:128:46)
+  Object.callComponentInDEV [as react-stack-bottom-frame] (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:8970:18)
+  renderWithHooks (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:4699:19)
+  run (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5134:23)
+  retryNode (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5899:31)
+"shadow*" style props are deprecated. Use "boxShadow".
+λ  WARN  Route "./(tabs)/chat.styles.ts" is missing the required default export. Ensure a React component is exported as default. 
+  console.warn (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo\node_modules\@expo\cli\src\start\server\serverLogLikeMetro.ts:161:21)
+  getDirectoryTree (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutesCore.js:311:29)
+  getRoutes (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutesCore.js:23:27)
+  getRoutes (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutes.js:20:41)
+  useStore (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\global-state\router-store.js:141:48)
+  Component (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\ExpoRoot.js:128:46)
+  Object.callComponentInDEV [as react-stack-bottom-frame] (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:8970:18)
+  renderWithHooks (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:4699:19)
+  run (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5134:23)
+  retryNode (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5899:31)
+"shadow*" style props are deprecated. Use "boxShadow".
+λ  WARN  Route "./(tabs)/chat.styles.ts" is missing the required default export. Ensure a React component is exported as default. 
+  console.warn (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo\node_modules\@expo\cli\src\start\server\serverLogLikeMetro.ts:161:21)
+  getDirectoryTree (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutesCore.js:311:29)
+  getRoutes (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutesCore.js:23:27)
+  getRoutes (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\getRoutes.js:20:41)
+  useStore (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\global-state\router-store.js:141:48)
+  Component (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\expo-router\build\ExpoRoot.js:128:46)
+  Object.callComponentInDEV [as react-stack-bottom-frame] (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:8970:18)
+  renderWithHooks (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:4699:19)
+  run (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5134:23)
+  retryNode (C:\Users\Windows\Desktop\FrontendAllora\frontend-mobile\node_modules\react-dom\cjs\react-dom-server-legacy.node.development.js:5899:31)

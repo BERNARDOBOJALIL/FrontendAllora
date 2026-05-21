@@ -160,10 +160,22 @@ function pickList(payload: unknown): unknown[] {
   return Array.isArray(list) ? list : [];
 }
 
-function normalizePotentialMatch(payload: unknown): PotentialMatch | null {
+function normalizePotentialMatch(
+  payload: unknown,
+  currentUserId?: string,
+): PotentialMatch | null {
   const record = asRecord(payload);
   if (!record) return null;
   const userId =
+    (currentUserId &&
+    asString(record.user_a_id) &&
+    asString(record.user_b_id)
+      ? asString(record.user_a_id) === currentUserId
+        ? asString(record.user_b_id)
+        : asString(record.user_b_id) === currentUserId
+          ? asString(record.user_a_id)
+          : ''
+      : '') ||
     asString(record.user_id) ||
     asString(record.userId) ||
     asString(record.candidate_id) ||
@@ -238,9 +250,10 @@ function normalizeMatch(payload: unknown): MatchResponse | null {
 
 function normalizePotentialMatchList(
   payload: unknown,
+  currentUserId?: string,
 ): PotentialMatchListResponse {
   const matches = pickList(payload)
-    .map(normalizePotentialMatch)
+    .map((match) => normalizePotentialMatch(match, currentUserId))
     .filter((match): match is PotentialMatch => Boolean(match));
   const total =
     Number(asRecord(payload)?.total ?? matches.length) || matches.length;
@@ -311,7 +324,7 @@ export async function getPotentialMatches(
     `/users/${encodeURIComponent(userId)}/matches?limit=${limit}&skip=${skip}`,
     { token },
   );
-  return normalizePotentialMatchList(payload);
+  return normalizePotentialMatchList(payload, userId);
 }
 
 /**
